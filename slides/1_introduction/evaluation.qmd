@@ -1,0 +1,375 @@
+---
+title: "Evaluating Explainability"
+---
+
+```{python}
+#| echo: false
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from matplotlib.patches import Rectangle
+
+import sklearn.datasets
+import sklearn.preprocessing
+import sklearn.tree
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import Ridge
+from sklearn.tree import DecisionTreeRegressor
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# Get data and model ready
+moons_scaler = sklearn.preprocessing.MinMaxScaler(
+    feature_range=(0, 1))
+
+moons_data, moons_target = sklearn.datasets.make_moons(
+    n_samples=1000, noise=0.25)
+moons_data = moons_scaler.fit_transform(moons_data)
+
+clf_moons = RandomForestClassifier(n_estimators=50, random_state=42)
+clf_moons.fit(moons_data, moons_target)
+
+data_point = np.array([0.25, 0.50])
+data_point_target = 0
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+x_min = moons_data[:, 0].min()
+x_max = moons_data[:, 0].max()
+x_range = x_max - x_min
+
+y_min = moons_data[:, 1].min()
+y_max = moons_data[:, 1].max()
+y_range = y_max - y_min
+
+padding = 0.15
+
+x_min -= x_range * padding
+x_max += x_range * padding
+
+y_min -= y_range * padding
+y_max += y_range * padding
+
+grid_step = 0.01
+grid_xx, grid_yy = np.meshgrid(
+    np.arange(x_min, x_max, grid_step),
+    np.arange(y_min, y_max, grid_step))
+
+grid_prediction = clf_moons.predict_proba(
+    np.c_[grid_xx.ravel(), grid_yy.ravel()])
+# Get probabilities of the selected class
+grid_prediction = grid_prediction[:, data_point_target]
+grid_prediction = grid_prediction.reshape(grid_xx.shape)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+gp = np.zeros_like(grid_prediction)
+more = grid_prediction > 0.35
+less = grid_prediction < 0.65
+ml = np.logical_and(more, less)
+gp[ml] = 1
+```
+
+# Current Practice
+
+## Lack of Consensus
+
+- What to evaluate
+- How to evaluate it
+- Approaches
+
+    * Technical -- numerical evaluation
+    * Social -- user studies
+
+## Evaluation Tiers
+
+| | Humans | Task |
+|-|--------|------|
+| Application-grounded Evaluation | Real Humans | Real Tasks |
+| Human-grounded Evaluation | Real Humans | Simple Tasks |
+| Functionally-grounded Evaluation | No Real Humans | Proxy Tasks |
+
+::: aside
+[@doshi2017towards]
+:::
+
+::: {.notes}
+1. Evaluate the XML system in a **real-life scenario**
+
+    * domain expertise
+    * good experimental setup
+
+2. Evaluate the XML system in a **simplified scenario**
+
+    * lay people instead of domain experts
+    * cost reduction and bigger pool of test subjects
+
+3. Evaluate the XML system in a **numerical proxy scenario**
+
+    * when the overall class of explanations has already been evaluated with
+      humans
+    * **caveat:** what is a class of explanations -- we will see that as
+      separation in a moment
+    * e.g., depth or width for decision trees
+:::
+
+## Numerical Evaluation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Global fidelity
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, figsize=(6, 6))
+fig.patch.set_alpha(0)
+
+cs = plt.contour(grid_xx, grid_yy, gp, cmap=plt.cm.Spectral, zorder=5)#grid_prediction)
+#                   cmap=plt.cm.Spectral, vmin=0.99, vmax=1,
+#                   alpha=0.6)
+
+plt.vlines(0.295, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.hlines(0.609, 0.295, 0.528, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.vlines(0.528, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+
+
+plt.scatter(data_point[0], data_point[1], c='k', s=150, zorder=8)
+
+r = Rectangle((-0.15,-0.15), 1.3, 1.3, color='b', alpha=0.1, fill=True, linewidth=0)
+
+ax.add_patch(r)
+
+plt.xlim((-0.15, 1.15))
+plt.ylim((-0.15, 1.15))
+
+plt.xticks([])
+plt.yticks([])
+
+plt.show()
+```
+
+## Numerical Evaluation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Local fidelity
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, figsize=(6, 6))
+fig.patch.set_alpha(0)
+
+cs = plt.contour(grid_xx, grid_yy, gp, cmap=plt.cm.Spectral, zorder=5)#grid_prediction)
+#                   cmap=plt.cm.Spectral, vmin=0.99, vmax=1,
+#                   alpha=0.6)
+
+plt.vlines(0.295, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.hlines(0.609, 0.295, 0.528, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.vlines(0.528, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+
+
+plt.scatter(data_point[0], data_point[1], c='k', s=150, zorder=8)
+
+r = Rectangle((data_point[0]-.2,data_point[1]-.2), .4, .4, color='b', alpha=0.1, fill=True, linewidth=0)
+
+ax.add_patch(r)
+
+plt.xlim((-0.15, 1.15))
+plt.ylim((-0.15, 1.15))
+
+plt.xticks([])
+plt.yticks([])
+
+plt.show()
+```
+
+## Numerical Evaluation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Surrogate fidelity
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, figsize=(6, 6))
+fig.patch.set_alpha(0)
+
+cs = plt.contour(grid_xx, grid_yy, gp, cmap=plt.cm.Spectral, zorder=5)#grid_prediction)
+#                   cmap=plt.cm.Spectral, vmin=0.99, vmax=1,
+#                   alpha=0.6)
+
+plt.vlines(0.295, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.hlines(0.609, 0.295, 0.528, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.vlines(0.528, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+
+
+plt.scatter(data_point[0], data_point[1], c='k', s=150, zorder=8)
+
+r1 = Rectangle((0.295-.05,x_min), .1, .609+0.15+0.05, color='b', alpha=0.1, fill=True, linewidth=0)
+r2 = Rectangle((0.528-.05,x_min), .1, .609+0.15+0.05, color='b', alpha=0.1, fill=True, linewidth=0)
+
+r3 = Rectangle((0.295+.05, .609-0.05), 0.528-0.295-0.05-0.05, .1, color='b', alpha=0.1, fill=True, linewidth=0)
+
+ax.add_patch(r1)
+ax.add_patch(r2)
+ax.add_patch(r3)
+
+plt.xlim((-0.15, 1.15))
+plt.ylim((-0.15, 1.15))
+
+plt.xticks([])
+plt.yticks([])
+
+plt.show()
+```
+
+## Numerical Evaluation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Black-box fidelity
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, figsize=(6, 6))
+fig.patch.set_alpha(0)
+
+cs = plt.contour(grid_xx, grid_yy, gp, cmap=plt.cm.Spectral, zorder=5)#grid_prediction)
+#                   cmap=plt.cm.Spectral, vmin=0.99, vmax=1,
+#                   alpha=0.6)
+
+plt.vlines(0.295, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.hlines(0.609, 0.295, 0.528, lw=5, colors='r', alpha=0.7, zorder=6)
+plt.vlines(0.528, x_min, 0.609, lw=5, colors='r', alpha=0.7, zorder=6)
+
+
+plt.scatter(data_point[0], data_point[1], c='k', s=150, zorder=8)
+
+r1 = Rectangle((0.295-.1,x_min), .2, .609+0.15+0.1, color='b', alpha=0.1, fill=True, linewidth=0)
+r2 = Rectangle((0.76-0.1, 1.15-(.609+0.15+0.1)), .2, .609+0.15+0.1, color='b', alpha=0.1, fill=True, linewidth=0)
+
+dd = 1.3 - (.609+0.15+0.1)
+dd = 1.3 - 2*dd
+aa = (0.76-0.1)-(0.295+0.1)
+r3 = Rectangle((0.295+.1, 1.15-(.609+0.15+0.1)), aa, dd, color='b', alpha=0.1, fill=True, linewidth=0)
+
+ax.add_patch(r1)
+ax.add_patch(r2)
+ax.add_patch(r3)
+
+plt.xlim((-0.15, 1.15))
+plt.ylim((-0.15, 1.15))
+
+plt.xticks([])
+plt.yticks([])
+
+plt.show()
+```
+
+## Desiderata-based Evaluation
+
+* Interactiveness (U4)
+* Actionability (U5)
+* Novelty (U8)
+* ...
+
+<br>
+
+> [{{< fa person-chalkboard >}}](taxonomy.html) &nbsp;&nbsp;&nbsp;
+> See the *taxonomy* module for a review of explainability desiderata.
+
+## Human-based Evaluation
+
+- Evaluating simulatability is insufficient
+- Same for task-completion
+
+. . .
+
+- We need to assess **understanding**
+
+::: {.notes}
+- As per our definition, we need to assess understanding
+- Understanding is context-dependent
+:::
+
+# Way Forward
+
+## Beyond Human-centred Evaluation
+
+- Shift towards human-centred explainability may have *overcompensated*
+- These are socio-**technical** systems -- both aspects should be
+  accounted for
+
+## Automated Decision-making
+<!-- **Automated Decision-making** -->
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/val-automated-decisions.svg){width=75% fig-alt="Automated decision-making workflow"}
+
+
+## Na&iuml;ve view
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/val-current.svg){width=75% fig-alt="Current validation"}
+
+## Explanatory insight & presentation medium
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/val-proposed1.svg){width=50% fig-align="center" fig-alt="Proposed validation 1"}
+
+## Phenomenon & explanation
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/val-proposed2.svg){width=25% fig-align="center" fig-alt="Proposed validation 2"}
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Summary
+
+- Evaluation is task-specific and context-dependent
+- It should account for both aspect of XML systems
+
+    * Technical -- the algorithms generating insights
+    * Social -- the explanatory artefacts and communication media
+
+- Overall, it should assess human understanding
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

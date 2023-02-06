@@ -1,0 +1,923 @@
+---
+title: "Taxonomy of Explainable ML"
+subtitle: "(Explainability Fact Sheets)"
+---
+
+# Dimensions of Explainability
+
+---
+
+*Social* and *technical* explainability desiderata spanning five dimensions
+
+1. **functional** -- algorithmic requirements
+3. **usability** -- user-centred properties
+2. **operational** -- deployment setting
+4. **safety** -- robustness and security <!-- of the method -->
+5. **validation** -- evaluation, verification and validation <!-- of the method -->
+
+::: aside
+[@sokol2020explainability]
+:::
+
+---
+
+:::: {.columns}
+
+::: {.column width="50%"}
+:busts_in_silhouette: &nbsp; *Audience*
+
+- :woman_scientist: &nbsp; Researchers (*creators*)
+- :man_technologist: &nbsp; Practitioners (*users*):  
+  engineers & data scientists
+- :female_detective: &nbsp; Compliance Personnel (*evaluators*):  
+  policymakers & auditors
+:::
+
+::: {.column width="50%"}
+:gear:️ &nbsp; *Operationalisation*
+
+- Work Sheets:  
+  design & development
+- Fact Sheets:  
+  assessment & comparison <!-- assessment -->
+- Checklist:  
+  inspection, compliance, impact & certification
+:::
+
+::::
+
+---
+
+:toolbox: &nbsp; *Applicability*
+
+- Explainability Approaches (*theory*)
+- Algorithms (*design*)
+- Implementations (*code*)
+
+## Running Example: Counterfactual Explanations
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+<br>
+
+> Had you been **10 years younger**,  
+> your loan application would be **accepted**.
+:::
+
+::: {.column width="45%"}
+![]({{< meta custom-paths.figures >}}/img_cf.svg){fig-alt="Example of an image counterfactual explanation" width=100% fig-align="center"}
+:::
+
+::::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+<!--
+## (F) Functional Requirements
+-->
+
+# [F] Functional Requirements
+
+---
+
+:::: {.columns}
+
+::: {.column width="50%"}
+- **F1** Problem Supervision Level
+- **F2** Problem Type
+- **F3** Explanation Target
+- **F4** Explanation Breadth/Scope
+- **F5** Computational Complexity
+:::
+
+::: {.column width="50%"}
+- **F6** Applicable Model Class
+- **F7** Relation to the Predictive System
+- **F8** Compatible Feature Types
+- **F9** Caveats and Assumptions
+:::
+
+::::
+
+## {.smaller}
+
+<table>
+<tr>
+<td style="vertical-align: text-top;">
+
+**F1** Problem Supervision Level
+
+</td>
+<td>
+
+- unsupervised
+- semi-supervised
+- supervised
+- reinforcement
+
+</td>
+</tr>
+<tr>
+<td>
+
+**F2** Problem Type
+
+</td>
+<td>
+
+- classification
+  - probabilistic / non-probabilistic
+  - binary / multi-class
+  - multi-label
+- regression
+- clustering
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**F6** Applicable Model Class
+
+</td>
+<td>
+
+- model-agnostic
+- model class-specific
+- model-specific
+
+</td>
+</tr>
+<tr>
+<td>
+
+**F7** Relation to the Predictive System
+
+</td>
+<td>
+
+- **ante-hoc** (based on endogenous information)
+- post-hoc (based on exogenous information)
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**F5** Computational Complexity
+
+</td>
+<td>
+
+- off-line explanations
+- real-time explanations
+
+</td>
+</tr>
+<tr>
+<td>
+
+**F8** Compatible Feature Types
+
+</td>
+<td>
+
+- numerical
+- categorical (one-hot encoding)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**F9** Caveats and Assumptions
+
+</td>
+<td>
+
+- any underlying assumptions, e.g., black box linearity
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**F3** Explanation Target
+
+</td>
+<td>
+
+- data (both raw data and features)
+- models
+- **predictions**
+
+</td>
+</tr>
+<tr>
+<td>
+
+**F4** Explanation Breadth/Scope
+
+</td>
+<td>
+
+- **local** – data point / prediction
+- cohort – subgroup / subspace
+- global
+
+</td>
+</tr>
+</table>
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+<!--
+## (U) Usability Requirements
+-->
+
+# [U] Usability Requirements
+
+---
+
+:::: {.columns}
+
+::: {.column width="50%"}
+- **U1** Soundness
+- **U2** Completeness
+- **U3** Contextfullness
+- **U4** Interactiveness
+- **U5** Actionability
+- **U6** Chronology
+:::
+
+::: {.column width="50%"}
+- **U7** Coherence
+- **U8** Novelty
+- **U9** Complexity
+- **U10** Personalisation
+- **U11** Parsimony
+:::
+
+::::
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**U1** Soundness
+
+</td>
+<td>
+
+How truthful it is with respect to the black box?
+
+</td>
+<td>
+
+(&#10004;)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U2** Completeness
+
+</td>
+<td>
+
+How well does it generalise?
+
+</td>
+<td>
+
+(&#10007;)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U3** Contextfullness
+
+</td>
+<td>
+
+"It only holds for people older than 25."
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U11** Parsimony
+
+</td>
+<td>
+
+How short is it?
+
+</td>
+<td>
+
+(&#10004;)
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**U6** Chronology
+
+</td>
+<td>
+
+More recent events first.
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U7** Coherence
+
+</td>
+<td>
+
+Comply with the natural laws (mental model).
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U8** Novelty
+
+</td>
+<td>
+
+Avoid stating obvious / being a truism.
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U9** Complexity
+
+</td>
+<td>
+
+Appropriate for the audience.
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**U5** Actionability
+
+</td>
+<td>
+
+Actionable foil.
+
+</td>
+<td>
+
+(&#10004;)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U4** Interactiveness
+
+</td>
+<td>
+
+User-defined foil.
+
+</td>
+<td>
+
+(&#10004;)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**U10** Personalisation
+
+</td>
+<td>
+
+User-defined foil.
+
+</td>
+<td>
+
+(&#10004;)
+
+</td>
+</tr>
+</table>
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+<!--
+## (O) Operational Requirements
+-->
+
+# [O] Operational Requirements
+
+---
+
+:::: {.columns}
+
+::: {.column width="50%"}
+- **O1** Explanation Family
+- **O2** Explanatory Medium
+- **O3** System Interaction
+- **O4** Explanation Domain
+- **O5** Data and Model Transparency
+:::
+
+::: {.column width="50%"}
+- **O6** Explanation Audience
+- **O7** Function of the Explanation
+- **O8** Causality vs. Actionability
+- **O9** Trust vs. Performance
+- **O10** Provenance
+:::
+
+::::
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**O1** Explanation Family
+
+</td>
+<td>
+
+- associations between antecedent and consequent
+- **contrasts and differences**
+- causal mechanisms
+
+</td>
+</tr>
+<tr>
+<td>
+
+**O2** Explanatory Medium
+
+</td>
+<td>
+
+- (statistical / numerical) summarisation
+- **visualisation**
+- **textualisation**
+- formal argumentation
+
+</td>
+</tr>
+<tr>
+<td>
+
+**O3** System Interaction
+
+</td>
+<td>
+
+- **static** – one-directional
+- **interactive** – bi-directional
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**O4** Explanation Domain
+
+</td>
+<td>
+
+- **original domain** (exemplars, model parameters)
+- **transformed domain** (interpretable representation)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**O5** Data and Model Transparency
+
+</td>
+<td>
+
+- **transparent/opaque data**
+- transparent/opaque model
+
+</td>
+</tr>
+<tr>
+<td>
+
+**O6** Explanation Audience
+
+</td>
+<td>
+
+- **domain experts**
+- **lay audience**
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**O7** Function of the Explanation
+
+</td>
+<td>
+
+- **interpretability**
+- **fairness** (disparate impact)
+- **accountability** (model robustness / adversarial examples)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**O8** Causality vs. Actionability
+
+</td>
+<td>
+
+- **look like causal insights but aren't**
+
+</td>
+</tr>
+<tr>
+<td>
+
+**O9** Trust and Performance
+
+</td>
+<td>
+
+- **truthful** to the black-box (perfect fidelity)
+- predictive performance is **not affected**
+
+</td>
+</tr>
+</table>
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**O10** Provenance
+
+</td>
+<td>
+
+- **predictive model**
+- data set
+- predictive model and data set (explainability trace)
+
+</td>
+</tr>
+</table>
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+<!--
+## (S) Safety Requirements
+-->
+
+# [S] Safety Requirements
+
+---
+
+- **S1** Information Leakage
+- **S2** Explanation Misuse
+- **S3** Explanation Invariance
+- **S4** Explanation Quality
+
+## {.smaller}
+
+<table style="text-align: left;">
+<tr>
+<td>
+
+**S1** Information Leakage
+
+</td>
+<td>
+
+Contrastive explanation **leak** precise values.
+
+</td>
+</tr>
+<tr>
+<td>
+
+**S2** Explanation Misuse
+
+</td>
+<td>
+
+Can be used to **reverse-engineer** the black box.
+
+</td>
+</tr>
+<tr>
+<td>
+
+**S3** Explanation Invariance
+
+</td>
+<td>
+
+Does it always output the same explanation (stochasticity / stability)?
+
+</td>
+</tr>
+<tr>
+<td>
+
+**S4** Explanation Quality
+
+</td>
+<td>
+
+Is it from the data distribution? </br>
+How far from a decision boundary (confidence)?
+
+</td>
+</tr>
+</table>
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+<!--
+## (V) Validation Requirements
+-->
+
+# [V] Validation Requirements
+
+---
+
+- **V1** User Studies
+- **V2** Synthetic Experiments
+
+## {.smaller}
+
+<table>
+<tr>
+<td>
+
+**V1** User Studies
+
+</td>
+<td rowspan="2">
+
+- Technical correctness
+- Human biases
+- Unfounded generalisation
+- Usefulness
+
+</td>
+</tr>
+<tr>
+<td>
+
+**V2** Synthetic Experiments
+
+</td>
+</tr>
+</table>
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+## :woman_scientist: &nbsp; Researcher's &nbsp; :tophat:
+
+<br>
+
+- :mag: only works with predictive models that **output numbers** (**F2** *Problem Type*)
+  - Is :mag: intended for regressors?
+  - Can :mag: be used with probabilistic classifiers?
+
+## :woman_scientist: &nbsp; Researcher's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- :mag: only works with **numerical features** (**F8** *Compatible Feature Types*)
+  - If data have categorical features, is applying one-hot encoding suitable?
+
+## :woman_scientist: &nbsp; Researcher's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- :mag: is **model agnostic** (**F6** *Applicable Model Class*)
+  - Can :mag: be used with any predictive model?
+
+<!--
+- :mag: is **post-hoc** (**F7** *Relation to the Predictive System*)
+  - Can :mag: be retro-fitted?
+-->
+
+## :woman_scientist: &nbsp; Researcher's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- :mag: has nice **theoretical properties** (**F9** *Caveats and Assumptions*)
+
+  > The explanation is always **[insert your favourite claim here]**.
+
+  - This claim may not hold for **every black-box** model (model agnostic explainer)
+  - The implementation **does not adhere** to the claim
+
+## :man_technologist: &nbsp; Engineer's &nbsp; :tophat:
+
+<br>
+
+- :mag: explains **song recommendations** (**O7** *Function of the Explanation*)
+- :mag: explains how users' **listening habits** and **interactions** with the service influence the recommendations (**O10** *Provenance* & **U5** *Actionability*)
+
+## :man_technologist: &nbsp; Engineer's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- How does :mag: scale? (**F5** *Computational Complexity*)
+  - Required to serve explanations in **real time**
+  - Will the computational complexity of the algorithm introduce any **lags**?
+
+## :man_technologist: &nbsp; Engineer's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- **Music listeners** are the recipients of the explanations (**O6** *Explanation Audience*)
+  - They are not expected to have any ML experience or background (**U9** *Complexity*)
+- They should be familiar with **general music concepts** (genre, pace, etc.) to appreciate the explanations (**O4** *Explanation Domain*)
+
+## :man_technologist: &nbsp; Engineer's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- The explanations will be delivered as **snippets of text** (**O2** *Explanatory Medium*)
+- They will include a single **piece of information** (**U11** *Parsimony*)
+- They are **one-directional** communication (**O3** *System Interaction* & **U4** *Interactiveness*)
+
+## :female_detective: &nbsp; Auditor's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- Are the explanations **sound** (**U1**) and **complete** (**U2**)?
+  - Do they agree with the predictive model?
+  - Are they coherent with the overall behaviour of the model?
+- Are the explanations placed in a **context**? (**U3** *Contextfullness*)
+  - "This explanation only applies to songs of this particular band."
+
+## :female_detective: &nbsp; Auditor's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- Will I get the **same explanation** tomorrow? (**S3** *Explanation Invariance*)
+  - Confidence of the predictive model
+  - Random effects within the :mag: algorithm
+
+## :female_detective: &nbsp; Auditor's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- Does the explainer **leak any sensitive information**? (**S1** *Information Leakage*)
+  - &rarr;*explanation*&larr;  
+    "Had you been older than 30, your loan application would have been approved."
+  - &rarr;*context*&larr;  
+    "This age threshold applies to people whose annual income is upwards of £25,000."
+- Why don't I **"round up"** my income the next time? (**S2** *Explanation Misuse*)
+
+## :female_detective: &nbsp; Auditor's &nbsp; :tophat: {{< meta subs.ctd >}}
+
+<br>
+
+- Was :mag: **validated** for the problem class that it is being deployed on? (**V2** *Synthetic Validation*)
+- Does :mag: **improve users' understanding**? (**V1** *User Studies*)
+
+## LIME Explainability Fact Sheet
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/lime_fact-sheet.png){fig-alt="LIME explainability fact sheet" width=75% fig-align="center"}
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Challenges
+
+- The desiderata list is neither **exhaustive** nor **prescriptive**
+
+. . .
+
+- Some properties are **incompatible** or **competing** – choose wisely and justify your choices
+  - Should I focus more on property F42 or F44?
+  - For O13, should I go for X or Y?
+- Other properties cannot be answered **uniquely**
+  - E.g., coherence with the user’s mental model
+
+. . .
+
+- The taxonomy **does not define explainability**
+
+:::: {.notes}
+- We will try to define explainability in a separate module
+::::
+
+## Summary
+
+- Explainability is characterised by a *broad range* of *diverse* properties
+- Desiderata include *social* and *technical* aspects of explainability
+- Having a readily available list of properties
+  helps to better design XML systems
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

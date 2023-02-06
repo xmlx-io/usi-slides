@@ -1,0 +1,436 @@
+---
+title: "Data Sets and Models"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import sklearn.datasets
+import sklearn.svm
+import sklearn.tree
+
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours():
+    colour = '#e4dbbd'
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+```
+
+# Data Sets
+
+##  Iris
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/iris.png){fig-alt="Iris Data Set" width=25% fig-align="center"}
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+![]({{< meta custom-paths.figures >}}/iris-classes.jpeg){fig-alt="Iris Classes" width=65% fig-align="center"}
+
+::: aside
+[@fisher1936use]
+:::
+
+##  Iris {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature correlation
+#| fig-width: 55%
+
+X_num_corr = np.flipud(np.corrcoef(X_num, rowvar=False))
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(X_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks(np.arange(len(feature_names)), labels=feature_names[::-1])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for i in range(len(feature_names)):
+    for j in range(len(feature_names)):
+        text = ax.text(j, i, f'{X_num_corr[i, j]:1.2f}',
+                       ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+##  Iris {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature and target correlation
+#| fig-width: 55%
+
+y_num_corr = np.array([np.flipud(np.corrcoef(X_num, y=y_num, rowvar=False))[0][:-1]])
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(y_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks([0], labels=['Iris type'])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for j in range(len(feature_names)):
+    text = ax.text(j, 0, f'{y_num_corr[0, j]:1.2f}',
+                   ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features and target')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+##  Iris {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris data distribution
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, 2, figsize=(12, 4), width_ratios=[6, 6])
+fig.patch.set_alpha(0)
+
+for i in np.sort(np.unique(y_num)):
+    mask = y_num == i
+    plt.sca(ax[0])
+    plt.scatter(X_num[mask, 0], X_num[mask, 1], label=target_names[i])
+    plt.sca(ax[1])
+    plt.scatter(X_num[mask, 2], X_num[mask, 3], label=target_names[i])
+
+plt.sca(ax[0])
+plt.xlabel(f'{feature_names[0]}')
+plt.ylabel(f'{feature_names[1]}')
+plt.sca(ax[1])
+plt.xlabel(f'{feature_names[2]}')
+plt.ylabel(f'{feature_names[3]}')
+
+plt.legend(loc='upper left', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+fig.suptitle('Iris data distribution')
+fig.tight_layout()
+plt.show()
+```
+
+## MNIST
+
+```{python}
+#| echo: false
+#| output: false
+
+mnist_dict = sklearn.datasets.load_digits()
+
+mnist_img, mnist_y = mnist_dict['images'], mnist_dict['target']
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: MNIST data sample
+#| fig-width: 55%
+
+fig, axs = plt.subplots(nrows=1, ncols=4, figsize=(10, 3))
+fig.patch.set_alpha(0)
+for ax, image, label in zip(axs, mnist_img, mnist_y):
+    ax.set_axis_off()
+    ax.imshow(image, cmap=plt.cm.gray_r, interpolation='nearest')
+    ax.set_title(f'Digit {label}')
+plt.show()
+```
+
+::: aside
+[@lecun1998mnist]
+:::
+
+##  ImageNet
+
+<br>
+
+![](https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01580077_jay.JPEG){fig-alt="ImageNet sample 1" width=25% fig-align="center"}
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+![](https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01514668_cock.JPEG){fig-alt="ImageNet sample 2" width=25% fig-align="center"}
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+![](https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01440764_tench.JPEG){fig-alt="ImageNet sample 3" width=25% fig-align="center"}
+
+::: aside
+[@deng2009imagenet]
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Models
+
+::: {.notes}
+- The underlying model does not really matter
+:::
+
+## Decision Trees
+
+```{python}
+#| echo: false
+#| output: false
+
+clf_tree = sklearn.tree.DecisionTreeClassifier(max_depth=3)
+clf_tree.fit(X_num, y_num)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Decision tree
+#| fig-width: 55%
+
+fig = sklearn.tree.plot_tree(
+    clf_tree,
+    feature_names=feature_names,
+    class_names=target_names,
+    filled=True, impurity=False, rounded=True)
+fig = fig[0].get_figure()
+fig.patch.set_alpha(0)
+plt.show()
+```
+
+## Linear SVMs
+
+```{python}
+#| echo: false
+#| output: false
+
+two_mask = y_num != 2
+
+y_num_two = y_num[two_mask]
+X_num_two = X_num[two_mask, :]
+X_num_two = X_num_two[:, [2, 3]]
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+clf_line = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_line.fit(X_num_two, y_num_two)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Linear SVM
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.scatter(clf_line.support_vectors_[:, 0], clf_line.support_vectors_[:, 1],
+            s=80, facecolors='none', zorder=10, edgecolors='k', linewidths=5)
+plt.scatter(X_num_two[:, 0], X_num_two[:, 1], c=y_num_two,
+            zorder=10, cmap=plt.cm.Paired, edgecolors='k')
+
+x_min, x_max = X_num_two[:, 0].min(), X_num_two[:, 0].max()
+x_range = x_max - x_min
+y_min, y_max = X_num_two[:, 1].min(), X_num_two[:, 1].max()
+y_range = y_max - y_min
+
+padding = 0.15
+
+x_min -= x_range * padding
+x_max += x_range * padding
+
+y_min -= y_range * padding
+y_max += y_range * padding
+
+grid_step = 0.01
+grid_xx, grid_yy = np.meshgrid(
+    np.arange(x_min, x_max, grid_step),
+    np.arange(y_min, y_max, grid_step))
+grid_prediction = clf_line.decision_function(
+    np.c_[grid_xx.ravel(), grid_yy.ravel()])
+grid_prediction = grid_prediction.reshape(grid_xx.shape)
+
+plt.pcolormesh(grid_xx, grid_yy, grid_prediction > 0, cmap=plt.cm.Paired)
+
+plt.contour(grid_xx, grid_yy, grid_prediction,
+            colors=['k', 'k', 'k'], linestyles=['--', '-', '--'],
+            levels=[-0.5, 0, 0.5])
+
+plt.xlabel(f'{feature_names[2]}')
+plt.ylabel(f'{feature_names[3]}')
+
+plt.show()
+```
+
+## SVMs
+
+```{python}
+#| echo: false
+#| output: false
+
+clf_line = sklearn.svm.SVC(probability=True, kernel='rbf')
+clf_line.fit(X_num_two, y_num_two)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Radial Basis Function SVM
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.scatter(clf_line.support_vectors_[:, 0], clf_line.support_vectors_[:, 1],
+            s=80, facecolors='none', zorder=10, edgecolors='k', linewidths=5)
+plt.scatter(X_num_two[:, 0], X_num_two[:, 1], c=y_num_two,
+            zorder=10, cmap=plt.cm.Paired, edgecolors='k')
+
+x_min, x_max = X_num_two[:, 0].min(), X_num_two[:, 0].max()
+x_range = x_max - x_min
+y_min, y_max = X_num_two[:, 1].min(), X_num_two[:, 1].max()
+y_range = y_max - y_min
+
+padding = 0.15
+
+x_min -= x_range * padding
+x_max += x_range * padding
+
+y_min -= y_range * padding
+y_max += y_range * padding
+
+grid_step = 0.01
+grid_xx, grid_yy = np.meshgrid(
+    np.arange(x_min, x_max, grid_step),
+    np.arange(y_min, y_max, grid_step))
+grid_prediction = clf_line.decision_function(
+    np.c_[grid_xx.ravel(), grid_yy.ravel()])
+grid_prediction = grid_prediction.reshape(grid_xx.shape)
+
+plt.pcolormesh(grid_xx, grid_yy, grid_prediction > 0, cmap=plt.cm.Paired)
+
+plt.contour(grid_xx, grid_yy, grid_prediction,
+            colors=['k', 'k', 'k'], linestyles=['--', '-', '--'],
+            levels=[-0.5, 0, 0.5])
+
+plt.xlabel(f'{feature_names[2]}')
+plt.ylabel(f'{feature_names[3]}')
+
+plt.show()
+```
+
+## Set Up
+
+- Probabilistic classification (with 3 classes for the Iris data set)
+- Crisp classification
+
+<br>
+<hr>
+<br>
+
+- Discretise a numerical feature to get a categorical attribute
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Summary
+
+
+:::: {.columns}
+
+::: {.column width="50%"}
+Data
+
+- Iris
+- MNIST
+- ImageNet
+:::
+
+::: {.column width="50%"}
+Models
+
+- Decision Trees
+- Linear SVMs
+- RBF SVMs
+:::
+
+::::
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

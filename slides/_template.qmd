@@ -1,0 +1,86 @@
+---
+title: "Method Name"
+subtitle: "Method Specification"
+---
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+```{python}
+#| echo: false
+
+# Handle imports and setup
+import numpy as np
+import matplotlib.pyplot as plt
+
+plt.style.use('seaborn')
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Method Overview
+
+## Explanation Type and Intuition
+
+TODO
+
+## Explanation Toy Example
+
+TODO
+
+## Method Properties
+
+TODO
+
+## Explanation Synopsis
+
+TODO
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# (Algorithmic) Building Blocks
+
+TODO
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Theoretical Underpinning
+
+TODO
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Case Study/Studies & Gotchas!
+
+TODO
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Method Properties
+
+## Pros
+
+TODO
+
+## Cons
+
+TODO
+
+## Caveats
+
+TODO
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# More Details
+
+## Related Techniques
+
+TODO
+
+## Implementations
+
+TODO
+
+## Further Reading
+
+TODO

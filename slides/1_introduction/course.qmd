@@ -1,0 +1,449 @@
+---
+title: "Machine Learning Explainability"
+subtitle: >
+  Exploring Automated Decision-Making Through Transparent Modelling and<br>
+  Peeking Inside Black Boxes
+---
+
+# Introduction
+
+## About Me
+
+<br>
+
+### Education
+
+- Master of Engineering in Mathematics and Computer Science
+  <br>(*University of Bristol*)
+- Doctor of Philosophy in Computer Science -- Artificial Intelligence and
+  Machine Learning
+  <br>(*University of Bristol*)
+
+## About Me {{< meta subs.ctd >}}
+
+<br>
+
+### Work Experience
+
+- Research Fellow,
+  <br>ARC Centre of Excellence for Automated Decision-Making and Society
+  <br>(*RMIT University*)
+- Honorary Research Fellow,
+  <br>Intelligent Systems Laboratory
+  <br>(*University of Bristol*)
+
+## About Me {{< meta subs.ctd >}}
+
+<br>
+
+### Work Experience {{< meta subs.ctd >}}
+
+- Senior Research Associate,
+  <br>TAILOR: European Union's AI Research Excellence Centre
+  <br>(*University of Bristol*)
+- Research Associate,
+  <br>Human-Centred Artificial Intelligence *in collaboration with THALES*
+  <br>(*University of Bristol*)
+- Research Assistant,
+  <br>REFrAMe
+  <br>(*University of Bristol*)
+
+## About Me {{< meta subs.ctd >}}
+
+<br>
+
+### Work Experience {{< meta subs.ctd >}}
+
+- Visiting Research Fellow,
+  <br>AI and Humanity Summer Cluster, Simons Institute for the Theory of Computing
+  <br>(*UC Berkeley*)
+- Visiting Researcher,
+  <br>Ubiquitous Computing Research Group
+  <br>(*Universit&agrave; della Svizzera italiana*)
+- Visiting Researcher,
+  <br>Machine Learning research group
+  <br>(*University of Tartu*)
+
+## About Me {{< meta subs.ctd >}}
+
+<br>
+
+### Research
+
+- AI & ML transparency, interpretability and explainability
+
+- Taxonomy of XAI & IML
+
+- Human-centred, interactive and personalised XAI & IML
+
+## About Me {{< meta subs.ctd >}}
+
+<br>
+
+### Research {{< meta subs.ctd >}}
+
+- Robustness, accountability, modularity and parameterisation of XAI & IML
+- Post-hoc methods, e.g., surrogates
+
+## About Me {{< meta subs.ctd >}}
+
+<br>
+
+### Research {{< meta subs.ctd >}}
+
+- XAI & IML open-source software
+
+- XAI & IML freely available, online, interactive training materials
+
+## About You
+
+- Who are you?
+- What's your background?
+- Why are you taking this course?
+- What do you expect to get out of this course?
+
+:::: {.notes}
+- Round of introductions
+::::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Organisational Details
+
+## Schedule
+
+- **When:** 2 weeks -- w/c 6<sup>th</sup> and 13<sup>th</sup> of February 2023
+- **What:** 10 sessions comprising of
+
+    * 45-minute lecture
+    * 45-minute supervised lab session (*project / assignment / coursework*)
+    * 30-minute open office (*general questions & project discussions*)
+
+- **Time Commitment:** 20 hours (*self-study*)
+
+:::: {.notes}
+- We may use the last session for project presentations
+::::
+
+## Schedule {{< meta subs.ctd >}}
+
+- **Where:**
+
+  | **What**    | **Time**       | **Location** (week 1) | **Location** (week 2) |
+  |-------------|----------------|-----------------------|-----------------------|
+  | lecture     | 9.30--10.15am  | D0.03                 | D1.14                 |
+  | discussion  | 10.15--10.30am | D0.03                 | D1.14                 |
+  | lab         | 10.30--11.15am | D0.03                 | D1.14                 |
+  | open office | 11.30am--12pm  | D0.03                 | D1.14                 |
+
+  : {tbl-colwidths="[100,100,100,100]"}
+
+## Prerequisites
+
+- Python programming
+- Basic mathematical concepts (relevant to machine learning)
+- Machine learning techniques for tabular data
+- :star: Prior experience with machine learning approaches for images and text
+  (e.g., deep learning) or other forms of data modelling (e.g., time series
+  forecasting, reinforcement learning) if you decide to pursue a project in
+  this direction
+
+## Resources
+
+<br>
+
+- **Online Slides**
+
+    * [usi.xmlx.io][slides-xmlx]
+    * [xmlx-io.github.io/usi-slides-mirror][slides-github]
+
+- **GitHub Repository**
+
+    * [github.com/xmlx-io/usi-slides-source][github-quarto] (*raw slides source*)
+    * [github.com/xmlx-io/usi-slides][github-html] (*html slides source*)
+    * [github.com/xmlx-io/usi-slides-mirror][github-html-mirror] (*html slides source mirror*)
+
+[slides-xmlx]: https://usi.xmlx.io/
+[slides-github]: https://xmlx-io.github.io/usi-slides-mirror
+
+[github-quarto]: https://github.com/xmlx-io/usi-slides-source
+[github-html]: https://github.com/xmlx-io/usi-slides-mirror
+[github-html-mirror]: https://github.com/xmlx-io/usi-slides-mirror
+
+## Resources {{< meta subs.ctd >}}
+
+<br>
+
+### Slides ###
+
+- Written in Markdown
+- Built with [Quarto] into [reveal.js] (web-based slides)
+- Computational elements and figures coded in Python (with matplotlib)
+- Source can be compiled into Jupyter Notebooks
+  (to experiment, modify, adapt and reuse the code chunks)
+
+:::: {.notes}
+- If you struggle to convert these, let me know and I will help you out
+::::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# About the Course
+
+## Motivation &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+<br>
+
+- Wealth of XAI and IML learning resources...
+- ...but mostly limited to
+
+    * **summary descriptions**
+    * **code examples**
+    * **explanation examples**
+    * **interpretation tips**
+
+## Motivation &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+<br>
+
+- **Deconstruct** each method
+- Inspect its **assumptions** and **operationalisation**
+- **Learn to tune** explainers for the problem at hand
+- **Learn to interpret** explanations in view of their
+  theoretical properties and
+  (*limitations of*) algorithmic implementation
+
+<hr>
+
+- Develop **critical thinking** about XAI and IML techniques
+
+## General Learning Objectives
+
+- Understand the landscape of AI and ML explainability techniques
+- Identify explainability needs of data-driven machine learning systems
+- Recognise the capabilities and limitations of explainability approaches,
+  both in general and in view of specific use cases
+- :star: Apply these skills to real-life AI and ML problems
+- :star: Communicate explainability findings through interactive reports and
+  dashboards
+
+## Practical Learning Objectives
+
+- Identify self-contained algorithmic components of explainers and
+  understand their functions
+- Connect these building blocks to the explainability requirements unique to
+  the investigated predictive system
+- Select appropriate algorithmic components and tune them to the problem at
+  hand
+- Evaluate these building blocks (in this specific context) independently and
+  when joined together to form the final explainer
+- Interpret the resulting explanations in view of the uncovered properties and
+  limitations of the bespoke explainability algorithm
+
+:::: {.notes}
+- Specific to explainability approaches
+::::
+
+## Scope
+
+<br>
+
+### Introduction to explainability
+
+:::: {.columns}
+
+::: {.column width="50%"}
+* History of explainability
+* Types of explanations
+* Ante-hoc vs. post-hoc discussion, and information lineage
+  (endogenous and exogenous sources of explanatory information)
+* Multi-class explainability
+:::
+
+::: {.column width="50%"}
+* Taxonomy and classification of explainability approaches
+* Defining explainability
+* Human-centred perspective
+* Evaluation of explainability techniques
+* Models and data used for this course
+:::
+
+::::
+
+## Scope {{< meta subs.ctd >}}
+
+<br>
+
+### A brief overview of data explainability
+
+* Data as an (implicit) model
+* Data summarisation and description
+* Dimensionality reduction (e.g., t-SNE)
+* Exemplars, prototypes and criticisms
+
+## Scope {{< meta subs.ctd >}}
+
+<br>
+
+### Transparent modelling
+
+* Linear models
+* Logistic models
+* Generalised additive models
+* Decision trees
+* Rule lists and sets; scoped rules
+* $k$-nearest neighbours and $k$-means
+
+## Scope {{< meta subs.ctd >}}
+
+<br>
+
+### Feature importance
+
+* Permutation Importance
+* Partial Dependence-based feature importance
+
+* Meta-approaches
+
+    * LIME-based feature importance
+    * SHAP-based feature importance
+
+## Scope {{< meta subs.ctd >}}
+
+<br>
+
+### Feature influence
+
+* Individual Conditional Expectation
+* Partial Dependence
+* Marginal Effect
+* Accumulated Local Effect
+
+* Meta-approaches
+
+    - LIME (linear surrogate)
+    - SHAP
+
+## Scope {{< meta subs.ctd >}}
+
+<br>
+
+### Meta-explainers
+
+* surrogate explainers
+
+    - local, cohort and global
+    - linear and tree-based
+
+* rules
+
+    - ANCHOR
+    - RuleFit
+
+* SHAP
+
+## Scope {{< meta subs.ctd >}}
+
+<br>
+
+### Instance-based explanations
+
+* Exemplar explanations
+* Counterfactuals
+* Prototypes and criticisms
+
+## Coursework
+
+1. **Bring-your-own-project**
+2. **Explain a predictive model** (you are working with)
+
+   - develop a bespoke explainability suite for a predictive model
+     of your choice (e.g., for a project you are currently working on,
+     or a model accessible via an API)
+   - use multiple explainability techniques and identify the sources of
+     explanation (dis)agreements
+
+## Coursework {{< meta subs.ctd >}}
+
+3. **Dissect an explainability method** --
+   choose an explainability method, identify its core (algorithmic) building
+   blocks and articulate its assumptions,
+   exploring how these different aspects affect the explanations
+4. **Build a model-specific or model-agnostic explainer or a transparent model**
+
+   - new explainability technique (from existing building blocks)
+   - new composition of an existing explainability technique
+   - new visualisation of an explanation type
+
+## Coursework {{< meta subs.ctd >}}
+
+- Individual or in small groups
+- Projects to be presented or demoed in the last class
+- [Some project ideas][project-ideas]
+
+:::: {.notes}
+- Let's discuss project ideas
+- If you want to brainstorm, we can discuss during office hours
+- We may use the final session for project presentation and discussion
+::::
+
+[project-ideas]: https://gist.github.com/So-Cool/0d3de6085c7c3caf1bdb8e0bf081c2ba#projects-pencil2tentative
+
+## Coursework {{< meta subs.ctd >}}
+
+> **Objective:** The journey is more important than the outcome
+
+* Reproducibility of the results (research best practice, open science)
+* Quality of the investigation
+* Due diligence
+
+    - Assumptions
+    - Choices (theoretical, algorithmic, implementation and otherwise)
+    - Justifications
+
+* ~~Project results~~
+
+## Tools
+
+:minidisc: Interactive visualisation / reporting / dashboarding / presentation
+software
+
+* [Streamlit][streamlit]
+* [Plotly Dash][dash]
+* Shiny for [Python][shiny-py] and [R][shiny-r]
+* [Quarto][quarto]
+
+:::: {.notes}
+- tools that may be used for the project presentation / delivery
+::::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+[quarto]: https://quarto.org/
+[reveal.js]: https://revealjs.com/
+
+[streamlit]: https://streamlit.io/
+[dash]: https://dash.plotly.com/
+[shiny-py]: https://shiny.rstudio.com/py/
+[shiny-r]: https://shiny.rstudio.com/

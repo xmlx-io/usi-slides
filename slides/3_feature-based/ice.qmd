@@ -1,0 +1,1524 @@
+---
+title: "Individual Conditional Expectation (ICE)"
+subtitle: "(Feature Influence)"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import scipy
+import sklearn.datasets
+import sklearn.inspection
+import sklearn.tree
+import sklearn.svm
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# Get data and model ready
+# Iris -- numerical
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+clf_num = sklearn.svm.SVC(probability=True)
+clf_num.fit(X_num, y_num)
+
+# Iris -- categorical
+X_cat, y_cat = np.array(X_num), y_num
+_map = X_num[:, 3] < 0.8
+X_cat[_map, 3] = 0
+_map = np.logical_and((X_num[:, 3] >= 0.8), (X_num[:, 3] < 1.35))
+X_cat[_map, 3] = 1
+_map = X_num[:, 3] >= 1.35
+X_cat[_map, 3] = 2
+cat_map = {0: 'low (x<0.8)', 1: 'medium (0.8≤x<1.35)', 2: 'high (1.35≤x)'}
+clf_cat = sklearn.tree.DecisionTreeClassifier(min_samples_leaf=10)
+clf_cat.fit(X_cat, y_cat)
+```
+
+# Method Overview
+
+## Explanation Synopsis
+
+<br>
+
+> ICE captures the **response of a predictive model** for a **single instance**
+> when **varying one of its features** [@goldstein2015peeking].
+
+<br>
+
+> It communicates **local** (with respect to a single instance)
+> **feature influence**.
+
+## Toy Example -- Numerical Feature
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate ICE
+class_id = 0
+instance_id = 42
+feature_id = 2
+ice_pd_num = sklearn.inspection.partial_dependence(
+    clf_num, X_num, features=[feature_id], feature_names=feature_names,
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='both')
+
+ice_num_X = ice_pd_num['values'][0]
+ice_num_y = ice_pd_num['individual'][class_id][instance_id]
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for a numerical feature
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+  fig, ax = plt.subplots(figsize=(8, 4))
+  fig.patch.set_alpha(0)
+
+  plt.plot(ice_num_X, ice_num_y)
+
+  plt.xlabel(f'{feature_names[feature_id]} value'.upper())
+
+  plt.ylabel(f'{target_names[class_id]} probability'.upper())
+  ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+  # ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+  plt.title(f'ICE for the instance #{instance_id} of the Iris data set'.upper())
+
+plt.show()
+plt.style.use('seaborn')
+```
+
+## Toy Example -- Categorical Feature
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate ICE
+class_id = 0
+instance_id = 42
+feature_id = 3
+ice_pd_cat = sklearn.inspection.partial_dependence(
+    clf_cat, X_cat, features=[feature_id], feature_names=feature_names,
+    categorical_features=[3],
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='both')
+
+ice_cat_X = ice_pd_cat['values'][0]
+ice_cat_y = ice_pd_cat['individual'][class_id][instance_id]
+ices_num_y = ice_pd_num['individual'][class_id]
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for a categorical feature
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+  fig, ax = plt.subplots(figsize=(8, 4))
+  fig.patch.set_alpha(0)
+
+  plt.plot(ice_cat_X, ice_cat_y, alpha=.25, zorder=0)
+  plt.scatter(ice_cat_X, ice_cat_y, zorder=5)
+
+  plt.xlabel(f'{feature_names[feature_id][:-5]} category'.upper())
+  plt.xticks([0, 1, 2])
+  ax.xaxis.set_major_formatter(lambda f, pos: f'{cat_map[f]}')
+
+  plt.ylabel(f'{target_names[class_id]} probability'.upper())
+  ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+  #ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+  plt.title(f'ICE for the instance #{instance_id} of the Iris data set'.upper())
+
+plt.show()
+plt.style.use('seaborn')
+```
+
+::: {.notes}
+- The lines don't show trajectories as these are meaningless for unordered
+  categories.
+- The lines are only useful to discern changes for individual instances.
+:::
+
+## Method Properties 
+
+<br>
+
+| *Property*           | **Individual Conditional Expectation**                |
+|----------------------|-------------------------------------------------------|
+| *relation*           | post-hoc                                              |
+| *compatibility*      | model-agnostic                                        |
+| *modelling*          | regression, crisp and probabilistic classification    |
+| *scope*              | local (per instance; generalises to cohort or global) |
+| *target*             | prediction (generalises to model)                     |
+
+## Method Properties {{< meta subs.ctd >}}
+
+<br>
+
+| *Property*           | **Individual Conditional Expectation**                |
+|----------------------|-------------------------------------------------------|
+| *data*               | tabular                                               |
+| *features*           | numerical and categorical                             |
+| *explanation*        | feature influence (visualisation)                     |
+| *caveats*            | feature correlation, unrealistic instances            |
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# (Algorithmic) Building Blocks
+
+## Computing ICE
+
+<br>
+
+::: {.callout-note}
+## Input
+
+1. Select a **feature to explain**
+2. Select the **explanation target**
+
+    * crisp classifiers &rarr; one-vs.-the-rest or all classes
+    * probabilistic classifiers &rarr; (probabilities of) one class
+    * regressors &rarr; numerical values
+
+3. Select an **instance to be explained** (or **collection** thereof)
+:::
+
+## Computing ICE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-caution}
+## Parameters
+
+1. Define **granularity** of the explained feature
+
+    * numerical attributes &rarr; select the range -- minimum and maximum
+      value -- and the step size of the feature
+    * categorical attributes &rarr; the full set or a subset of possible values
+:::
+
+## Computing ICE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure
+
+1. For each explained instance create its copy with the value of the explained
+   feature replaced by the range of values determined by the explanation
+   granularity
+2. Predict the augmented data
+3. For each explained instance plot a line that represents the response of
+   the explained model across the entire spectrum of the explained feature
+
+{{< fa star >}}&nbsp;&nbsp;&nbsp; Since the values of the explained feature may
+**not be uniformly distributed** in the underlying data set,
+a **rug plot** showing the distribution of its feature values can help in
+interpreting the explanation.
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Theoretical Underpinning
+
+## Formulation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+$$
+X_{\mathit{ICE}} \subseteq \mathcal{X}
+$$
+
+$$
+V_i = \{ v_i^{\mathit{min}} , \ldots , v_i^{\mathit{max}} \}
+$$
+
+$$
+f \left( x_{\setminus i} , x_i=v_i \right) \;\; \forall \; x \in X_{\mathit{ICE}} \; \forall \; v_i \in V_i
+$$
+
+<br>
+
+$$
+f \left( x_{\setminus i} , x_i=V_i \right) \;\; \forall \; x \in X_{\mathit{ICE}}
+$$
+
+## Formulation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}} {{< meta subs.ctd >}}
+
+<br>
+
+Original notation [@goldstein2015peeking]
+
+<br>
+
+$$
+\left\{ \left( x_{S}^{(i)} , x_{C}^{(i)} \right) \right\}_{i=1}^N
+$$
+
+<br>
+
+$$
+\hat{f}_S^{(i)} = \hat{f} \left( x_{S}^{(i)} , x_{C}^{(i)} \right)
+$$
+
+::: {.notes}
+- $x_S$ is **stepped** through -- the explained feature
+- $x_C$ are the **given** feature values
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Variants #
+
+## Centred ICE
+
+<br>
+
+> Centres ICE curves by anchoring them at a fixed point,
+> usually the lower end of the explained feature range.
+
+$$
+f \left( x_{\setminus i} , x_i=V_i \right) -
+f \left( x_{\setminus i} , x_i=v_i^{\mathit{min}} \right)
+\;\; \forall \; x \in X_{\mathit{ICE}}
+$$
+
+<p style="text-align: center;">or</p>
+
+$$
+\hat{f} \left( x_{S}^{(i)} , x_{C}^{(i)} \right) -
+\hat{f} \left( x^{\star} , x_{C}^{(i)} \right)
+$$
+
+::: {.notes}
+Helps to see whether the ICE curves of individual instances behave differently.
+:::
+
+## Derivative ICE
+
+<br>
+
+> Visualises **interaction effects** between the explained and
+> remaining features by calculating the partial derivative of
+> the explained model $f$ with respect to the explained feature $x_i$.
+>
+> * When no interactions are present, all curves overlap.
+> * When interactions exist, the lines will be heterogeneous.
+
+## Derivative ICE {{< meta subs.ctd >}}
+
+<br>
+
+$$
+f \left( x_{\setminus i} , x_i \right) =
+g \left( x_i \right) + h \left( x_{\setminus i} \right)
+\;\; \text{so that} \;\;
+\frac{\partial f(x)}{\partial x_i} = g^\prime(x_i)
+$$
+
+<p style="text-align: center;">or</p>
+
+$$
+\hat{f} \left( x_{S} , x_{C} \right) =
+g \left( x_{S} \right) + h \left( x_{C} \right)
+\;\; \text{so that} \;\;
+\frac{\partial \hat{f}(x)}{\partial x_{S}} = g^\prime(x_{S})
+$$
+
+::: {.notes}
+- This assumes no interaction (correlation) between the inspected / explained
+  and the remaining features.
+- (Derivatives) communicates the rate and direction of changes in each ICE line.
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours():
+    colour = '#e4dbbd'
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+```
+
+## ICE of a Single Instance
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for a single instance
+#| fig-width: 55%
+
+feature_id = 2
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# ICE
+plt.sca(ax[0])
+
+plt.title(f'ICE for the instance #{instance_id} of the Iris data set')
+
+plt.plot(ice_num_X, ice_num_y)
+
+plt.ylabel(f'{target_names[class_id]} probability')
+ax[0].yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+plt.yticks([])
+
+kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id])
+rug_x = np.linspace(
+    X_num[:, feature_id].min(),
+    X_num[:, feature_id].max(),
+    num=200)
+plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.scatter(
+    X_num[:, feature_id], [0]*len(X_num[:, feature_id]),
+    c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+plt.show()
+```
+
+## ICE of a Data Collection
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for a collection of instances
+#| fig-width: 55%
+
+feature_id = 2
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# ICE
+plt.sca(ax[0])
+
+plt.title(f'ICE for all instances of the Iris data set')
+
+plt.plot(ice_num_X, ices_num_y.T, alpha=.25, c=line_colour)
+
+plt.ylabel(f'{target_names[class_id]} probability')
+ax[0].yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+plt.yticks([])
+
+kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id])
+rug_x = np.linspace(
+    X_num[:, feature_id].min(),
+    X_num[:, feature_id].max(),
+    num=200)
+plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.scatter(
+    X_num[:, feature_id], [0]*len(X_num[:, feature_id]),
+    c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+plt.show()
+```
+
+## Centred ICE
+
+```{python}
+#| echo: false
+#| output: false
+
+cices_num_y = ices_num_y.T - ices_num_y[:, 0]
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Centred ICE for a collection of instances
+#| fig-width: 55%
+
+feature_id = 2
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# cICE
+plt.sca(ax[0])
+
+plt.title(f'Centred ICE for all instances of the Iris data set')
+
+plt.plot(ice_num_X, cices_num_y, alpha=.25, c=line_colour)
+
+plt.ylabel(f'{target_names[class_id]} probability')
+ax[0].yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+plt.yticks([])
+
+kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id])
+rug_x = np.linspace(
+    X_num[:, feature_id].min(),
+    X_num[:, feature_id].max(),
+    num=200)
+plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.scatter(
+    X_num[:, feature_id], [0]*len(X_num[:, feature_id]),
+    c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+plt.show()
+```
+
+## Derivative ICE
+
+```{python}
+#| echo: false
+#| output: false
+
+# smooth out
+dices_num_y = scipy.signal.savgol_filter(ices_num_y, 10, 1, axis=1)
+# take partial derivative
+dices_num_y = np.diff(dices_num_y, axis=1) / np.diff(ice_num_X)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Derivative ICE for a collection of instances
+#| fig-width: 55%
+
+feature_id = 2
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# dICE
+plt.sca(ax[0])
+
+plt.title(f'Derivative ICE for all instances of the Iris data set')
+
+plt.plot(ice_num_X[1:], dices_num_y.T, alpha=.25, c=line_colour)
+
+plt.ylabel(f'Partial derivative of {target_names[class_id]} '
+           'probability $\\frac{\\partial f(x)}{\\partial x_i}$')
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value $x_i$')
+plt.yticks([])
+
+kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id])
+rug_x = np.linspace(
+    X_num[:, feature_id].min(),
+    X_num[:, feature_id].max(),
+    num=200)
+plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.scatter(
+    X_num[:, feature_id], [0]*len(X_num[:, feature_id]),
+    c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+plt.show()
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Case Studies & Gotchas!
+
+## Out-of-distribution (Impossible) Instances
+
+```{python}
+#| echo: false
+#| output: false
+
+feature_id = 0
+
+ice_pd_num_o = sklearn.inspection.partial_dependence(
+    clf_num, X_num, features=[feature_id],
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='both')
+ice_num_X_o = ice_pd_num_o['values'][0]
+
+density = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=0.5)
+density.fit(X_num)
+
+density_scores = np.zeros((X_num.shape[0], ice_num_X_o.shape[0]), dtype=np.float64)
+for i in range(X_num.shape[0]):
+    instances = np.repeat(X_num[[i], :], ice_num_X_o.shape[0], axis=0)
+    instances[:, feature_id] = ice_num_X_o
+    density_scores[i, :] = np.exp(density.score_samples(instances))
+
+density_x = np.arange(X_num.shape[0])
+density_x = np.repeat([density_x], ice_num_X_o.shape[0], axis=0)
+
+density_y = np.repeat(np.array([ice_num_X_o]).T, X_num.shape[0], axis=1)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Likelihood of ICE instances belonging to the Iris data set
+#| fig-width: 55%
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots(figsize=(12, 6))
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.flipud(density_scores.T), alpha=0.5, cmap='cool')
+
+ax.xaxis.set_major_formatter(lambda f, pos: f'#{f:.0f}')
+plt.xlabel('instance ID')
+
+ax.set_yticks(
+    np.arange(ice_num_X_o.shape[0], step=3),
+    labels=[f'{v:1.1f}' for i, v in enumerate(ice_num_X_o) if not i%3][::-1])
+plt.ylabel(f'{feature_names[feature_id]} value')
+
+plt.title('Likelihood of the instance belonging to the Iris data set')
+
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Out-of-distribution (Impossible) Instances {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+feature_id = 1
+
+ice_pd_num_o = sklearn.inspection.partial_dependence(
+    clf_num, X_num, features=[feature_id],
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='both')
+ice_num_X_o = ice_pd_num_o['values'][0]
+
+density = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=0.5)
+density.fit(X_num)
+
+density_scores = np.zeros((X_num.shape[0], ice_num_X_o.shape[0]), dtype=np.float64)
+for i in range(X_num.shape[0]):
+    instances = np.repeat(X_num[[i], :], ice_num_X_o.shape[0], axis=0)
+    instances[:, feature_id] = ice_num_X_o
+    density_scores[i, :] = np.exp(density.score_samples(instances))
+
+density_x = np.arange(X_num.shape[0])
+density_x = np.repeat([density_x], ice_num_X_o.shape[0], axis=0)
+
+density_y = np.repeat(np.array([ice_num_X_o]).T, X_num.shape[0], axis=1)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Likelihood of ICE instances belonging to the Iris data set
+#| fig-width: 55%
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots(figsize=(12, 6))
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.flipud(density_scores.T), alpha=0.5, cmap='cool')
+
+ax.xaxis.set_major_formatter(lambda f, pos: f'#{f:.0f}')
+plt.xlabel('instance ID')
+
+ax.set_yticks(
+    np.arange(ice_num_X_o.shape[0], step=3),
+    labels=[f'{v:1.1f}' for i, v in enumerate(ice_num_X_o) if not i%3][::-1])
+plt.ylabel(f'{feature_names[feature_id]} value')
+
+plt.title('Likelihood of the instance belonging to the Iris data set')
+
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Out-of-distribution (Impossible) Instances {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+feature_id = 2
+
+ice_pd_num_o = sklearn.inspection.partial_dependence(
+    clf_num, X_num, features=[feature_id],
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='both')
+ice_num_X_o = ice_pd_num_o['values'][0]
+
+density = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=0.5)
+density.fit(X_num)
+
+density_scores = np.zeros((X_num.shape[0], ice_num_X_o.shape[0]), dtype=np.float64)
+for i in range(X_num.shape[0]):
+    instances = np.repeat(X_num[[i], :], ice_num_X_o.shape[0], axis=0)
+    instances[:, feature_id] = ice_num_X_o
+    density_scores[i, :] = np.exp(density.score_samples(instances))
+
+density_x = np.arange(X_num.shape[0])
+density_x = np.repeat([density_x], ice_num_X_o.shape[0], axis=0)
+
+density_y = np.repeat(np.array([ice_num_X_o]).T, X_num.shape[0], axis=1)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Likelihood of ICE instances belonging to the Iris data set
+#| fig-width: 55%
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots(figsize=(12, 6))
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.flipud(density_scores.T), alpha=0.5, cmap='cool')
+
+ax.xaxis.set_major_formatter(lambda f, pos: f'#{f:.0f}')
+plt.xlabel('instance ID')
+
+ax.set_yticks(
+    np.arange(ice_num_X_o.shape[0], step=3),
+    labels=[f'{v:1.1f}' for i, v in enumerate(ice_num_X_o) if not i%3][::-1])
+plt.ylabel(f'{feature_names[feature_id]} value')
+
+plt.title('Likelihood of the instance belonging to the Iris data set')
+
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+::: {.notes}
+Note the gaps in the feature range, which is due to how scikit-learn computes
+the range for ICE calculation.
+:::
+
+## Out-of-distribution (Impossible) Instances {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+feature_id = 3
+
+ice_pd_num_o = sklearn.inspection.partial_dependence(
+    clf_num, X_num, features=[feature_id],
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='both')
+ice_num_X_o = ice_pd_num_o['values'][0]
+
+density = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=0.5)
+density.fit(X_num)
+
+density_scores = np.zeros((X_num.shape[0], ice_num_X_o.shape[0]), dtype=np.float64)
+for i in range(X_num.shape[0]):
+    instances = np.repeat(X_num[[i], :], ice_num_X_o.shape[0], axis=0)
+    instances[:, feature_id] = ice_num_X_o
+    density_scores[i, :] = np.exp(density.score_samples(instances))
+
+density_x = np.arange(X_num.shape[0])
+density_x = np.repeat([density_x], ice_num_X_o.shape[0], axis=0)
+
+density_y = np.repeat(np.array([ice_num_X_o]).T, X_num.shape[0], axis=1)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Likelihood of ICE instances belonging to the Iris data set
+#| fig-width: 55%
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots(figsize=(12, 6))
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.flipud(density_scores.T), alpha=0.5, cmap='cool')
+
+ax.xaxis.set_major_formatter(lambda f, pos: f'#{f:.0f}')
+plt.xlabel('instance ID')
+
+ax.set_yticks(
+    np.arange(ice_num_X_o.shape[0], step=3),
+    labels=[f'{v:1.1f}' for i, v in enumerate(ice_num_X_o) if not i%3][::-1])
+plt.ylabel(f'{feature_names[feature_id]} value')
+
+plt.title('Likelihood of the instance belonging to the Iris data set')
+
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Feature Correlation
+
+```{python}
+#| echo: false
+#| output: false
+
+clf_num_linear_a = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_num_linear_a.fit(X_num, y_num)
+
+class_id = 0
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for all features of a single class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    5, 2, figsize=(16, 9.75), height_ratios=[4, .5, .75, 4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.01, hspace=.01)
+fig.suptitle('ICE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.95)
+
+p = [(0, 0), (0, 1), (3, 0), (3, 1)]
+
+for feature_id in range(X_num.shape[1]):
+
+    ice_pd_num_a = sklearn.inspection.partial_dependence(
+        clf_num_linear_a, X_num, features=[feature_id],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    # ICE
+    plt.sca(ax[p[feature_id][0]][p[feature_id][1]])
+
+    plt.plot(ice_pd_num_a['values'][0], ice_pd_num_a['individual'][class_id].T,
+            alpha=.25, c=line_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+    # rug plot
+    plt.sca(ax[p[feature_id][0]+1][p[feature_id][1]])
+
+    plt.xlabel(f'{feature_names[feature_id]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id])
+    rug_x = np.linspace(
+        X_num[:, feature_id].min(),
+        X_num[:, feature_id].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id], [0]*len(X_num[:, feature_id]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[3][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[3][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+ax[3][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[3][0].sharex(ax[4][0])
+ax[0][1].sharex(ax[1][1])
+ax[3][1].sharex(ax[4][1])
+
+ax[0][0].sharey(ax[0][1])
+ax[3][0].sharey(ax[3][1])
+
+fig.delaxes(ax[2][0])
+fig.delaxes(ax[2][1])
+
+plt.show()
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Model coefficients for the selected class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+r = list(range(clf_num_linear_a.coef_.shape[1]))[::-1]
+plt.barh(r, clf_num_linear_a.coef_[class_id, :])
+plt.gca().set_yticks(r, labels=feature_names)
+plt.title(f'Coefficients of a linear SVM for the {target_names[class_id]} class')
+
+plt.show()
+```
+
+::: {.notes}
+- Go back to the previous plot and show that for
+  **negative coefficient features** the probability **decreases**;
+  but for **positive coefficient features** it **increases**.
+- The **rate of chagne** depends on the **magnitude of the coefficient**.
+- **Caveat:** The features were not normalised to the same range so these
+  aren't really directly comparable.
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature correlation
+#| fig-width: 55%
+
+X_num_corr = np.flipud(np.corrcoef(X_num, rowvar=False))
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(X_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks(np.arange(len(feature_names)), labels=feature_names[::-1])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for i in range(len(feature_names)):
+    for j in range(len(feature_names)):
+        text = ax.text(j, i, f'{X_num_corr[i, j]:1.2f}',
+                       ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Target Correlation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature and target correlation
+#| fig-width: 55%
+
+y_num_corr = np.array([np.flipud(np.corrcoef(X_num, y=y_num, rowvar=False))[0][:-1]])
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(y_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks([0], labels=['Iris type'])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for j in range(len(feature_names)):
+    text = ax.text(j, 0, f'{y_num_corr[0, j]:1.2f}',
+                   ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features and target')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Feature 2 & 1 Correlation (small)
+
+```{python}
+#| echo: false
+#| output: false
+
+class_id = 0
+features = [1, 0]
+
+clf_num_linear_s = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_num_linear_s.fit(X_num[:, features], y_num)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for all features of a single class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.01, hspace=.01)
+fig.suptitle('ICE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.92)
+
+for feature_id_cut, feature_id_full in enumerate(features):
+
+    ice_pd_num_s = sklearn.inspection.partial_dependence(
+        clf_num_linear_s, X_num[:, features], features=[feature_id_cut],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    # ICE
+    plt.sca(ax[0][feature_id_cut])
+
+    plt.plot(ice_pd_num_s['values'][0], ice_pd_num_s['individual'][class_id].T,
+            alpha=.25, c=line_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+    # rug plot
+    plt.sca(ax[1][feature_id_cut])
+
+    plt.xlabel(f'{feature_names[feature_id_full]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id_full])
+    rug_x = np.linspace(
+        X_num[:, feature_id_full].min(),
+        X_num[:, feature_id_full].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id_full], [0]*len(X_num[:, feature_id_full]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[0][1].sharex(ax[1][1])
+
+ax[0][0].sharey(ax[0][1])
+
+plt.show()
+```
+
+## Feature 2 & 1 Correlation (small) {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Model coefficients for the selected class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+r = list(range(clf_num_linear_s.coef_.shape[1]))[::-1]
+plt.barh(r, clf_num_linear_s.coef_[class_id, :])
+plt.gca().set_yticks(r, labels=[feature_names[i] for i in features])
+plt.title(f'Coefficients of a linear SVM for the {target_names[class_id]} class')
+
+plt.show()
+```
+
+::: {.notes}
+- When using the features with least correlation, the behaviour is most unlike
+  the full 4 feature plot.
+- As we will see with the other (correlated) figures, the behaviour is almost
+  unchanged.
+:::
+
+## Feature 2 & 3 Correlation (medium)
+
+```{python}
+#| echo: false
+#| output: false
+
+class_id = 0
+features = [1, 2]
+
+clf_num_linear_s = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_num_linear_s.fit(X_num[:, features], y_num)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for all features of a single class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.01, hspace=.01)
+fig.suptitle('ICE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.92)
+
+for feature_id_cut, feature_id_full in enumerate(features):
+
+    ice_pd_num_s = sklearn.inspection.partial_dependence(
+        clf_num_linear_s, X_num[:, features], features=[feature_id_cut],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    # ICE
+    plt.sca(ax[0][feature_id_cut])
+
+    plt.plot(ice_pd_num_s['values'][0], ice_pd_num_s['individual'][class_id].T,
+            alpha=.25, c=line_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+    # rug plot
+    plt.sca(ax[1][feature_id_cut])
+
+    plt.xlabel(f'{feature_names[feature_id_full]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id_full])
+    rug_x = np.linspace(
+        X_num[:, feature_id_full].min(),
+        X_num[:, feature_id_full].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id_full], [0]*len(X_num[:, feature_id_full]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[0][1].sharex(ax[1][1])
+
+ax[0][0].sharey(ax[0][1])
+
+plt.show()
+```
+
+## Feature 2 & 3 Correlation (medium) {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Model coefficients for the selected class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+r = list(range(clf_num_linear_s.coef_.shape[1]))[::-1]
+plt.barh(r, clf_num_linear_s.coef_[class_id, :])
+plt.gca().set_yticks(r, labels=[feature_names[i] for i in features])
+plt.title(f'Coefficients of a linear SVM for the {target_names[class_id]} class')
+
+plt.show()
+```
+
+## Feature 2 & 4 Correlation (medium)
+
+```{python}
+#| echo: false
+#| output: false
+
+class_id = 0
+features = [1, 3]
+
+clf_num_linear_s = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_num_linear_s.fit(X_num[:, features], y_num)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for all features of a single class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.01, hspace=.01)
+fig.suptitle('ICE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.92)
+
+for feature_id_cut, feature_id_full in enumerate(features):
+
+    ice_pd_num_s = sklearn.inspection.partial_dependence(
+        clf_num_linear_s, X_num[:, features], features=[feature_id_cut],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    # ICE
+    plt.sca(ax[0][feature_id_cut])
+
+    plt.plot(ice_pd_num_s['values'][0], ice_pd_num_s['individual'][class_id].T,
+            alpha=.25, c=line_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+    # rug plot
+    plt.sca(ax[1][feature_id_cut])
+
+    plt.xlabel(f'{feature_names[feature_id_full]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id_full])
+    rug_x = np.linspace(
+        X_num[:, feature_id_full].min(),
+        X_num[:, feature_id_full].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id_full], [0]*len(X_num[:, feature_id_full]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[0][1].sharex(ax[1][1])
+
+ax[0][0].sharey(ax[0][1])
+
+plt.show()
+```
+
+## Feature 2 & 4 Correlation (medium) {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Model coefficients for the selected class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+r = list(range(clf_num_linear_s.coef_.shape[1]))[::-1]
+plt.barh(r, clf_num_linear_s.coef_[class_id, :])
+plt.gca().set_yticks(r, labels=[feature_names[i] for i in features])
+plt.title(f'Coefficients of a linear SVM for the {target_names[class_id]} class')
+
+plt.show()
+```
+
+## Feature 3 & 4 Correlation (high)
+
+```{python}
+#| echo: false
+#| output: false
+
+class_id = 0
+features = [2, 3]
+
+clf_num_linear_s = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_num_linear_s.fit(X_num[:, features], y_num)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ICE for all features of a single class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.01, hspace=.01)
+fig.suptitle('ICE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.92)
+
+for feature_id_cut, feature_id_full in enumerate(features):
+
+    ice_pd_num_s = sklearn.inspection.partial_dependence(
+        clf_num_linear_s, X_num[:, features], features=[feature_id_cut],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    # ICE
+    plt.sca(ax[0][feature_id_cut])
+
+    plt.plot(ice_pd_num_s['values'][0], ice_pd_num_s['individual'][class_id].T,
+            alpha=.25, c=line_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+
+    # rug plot
+    plt.sca(ax[1][feature_id_cut])
+
+    plt.xlabel(f'{feature_names[feature_id_full]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id_full])
+    rug_x = np.linspace(
+        X_num[:, feature_id_full].min(),
+        X_num[:, feature_id_full].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id_full], [0]*len(X_num[:, feature_id_full]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[0][1].sharex(ax[1][1])
+
+ax[0][0].sharey(ax[0][1])
+
+plt.show()
+```
+
+## Feature 3 & 4 Correlation (high) {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Model coefficients for the selected class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+r = list(range(clf_num_linear_s.coef_.shape[1]))[::-1]
+plt.barh(r, clf_num_linear_s.coef_[class_id, :])
+plt.gca().set_yticks(r, labels=[feature_names[i] for i in features])
+plt.title(f'Coefficients of a linear SVM for the {target_names[class_id]} class')
+
+plt.show()
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Properties
+
+## Pros &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+- **Easy to generate and interpret**
+- Spanning multiple instances allows to capture the diversity (heterogeneity)
+  of the model's behaviour
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+- Assumes **feature independence**, which is often unreasonable
+- ICE may not reflect the true behaviour of the model since it displays the
+  behaviour of the model for **unrealistic instances**
+- May be **unreliable for certain values** of the explained feature when its
+  values are not uniformly distributed (abated by a **rug plot**)
+- Limited to explaining **one feature at a time**
+
+## Caveats &nbsp;&nbsp;&nbsp;{{< fa skull >}}
+
+- Averaging ICEs gives *Partial Dependence (PD)*
+- Generating ICEs may be computationally expensive for *large sets of data* and
+  *wide feature intervals* with a *small "inspection" step*
+- Computational complexity: $\mathcal{O} \left( n \times d \right)$, where
+  * $n$ is the number of instances in the designated data set and
+  * $d$ is the number of steps within the designated feature interval
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Further Considerations
+
+## Causal Interpretation
+
+Under certain (quite restrictive) assumptions, ICE is admissible to
+a causal interpretation [@zhao2021causal].
+
+See
+[{{< fa person-chalkboard >}} Causal Interpretation of Partial Dependence (PD)](pd.html#/causal-interpretation)
+for more detail.
+
+## Related Techniques
+
+<br>
+
+### Partial Dependence (PD)
+
+> [{{< fa person-chalkboard >}}](pd.html) &nbsp;&nbsp;&nbsp;
+> Model-focused (global) "version" of *Individual Conditional Expectation*,
+> which is calculated by **averaging** ICE across a collection of data points
+> [@friedman2001greedy].
+> It communicates the average influence of a specific feature value on
+> the model's prediction by **fixing the value of this feature** across a
+> designated set of instances.
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### Marginal Effect (Marginal Plots or M-Plots)
+
+> [{{< fa person-chalkboard >}}](m.html) &nbsp;&nbsp;&nbsp;
+> It communicates the influence of a specific feature value
+> -- or similar values, i.e., an interval around the selected value --
+> on the model's prediction by **only considering relevant instances**
+> found in the designated data set.
+> It is calculated as **the average prediction of these instances**.
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### Accumulated Local Effect (ALE)
+
+> [{{< fa person-chalkboard >}}](ale.html) &nbsp;&nbsp;&nbsp;
+> It communicates the influence of a specific feature value on the model's
+> prediction by quantifying the average (accumulated) difference between
+> the predictions at the boundaries of a (small) **fixed interval** around
+> the selected feature value [@apley2020visualizing].
+> It is calculated by replacing the value of the explained feature with the
+> interval boundaries for **instances found in the designated data set**
+> whose value of this feature is within the specified range.
+
+## Implementations
+
+| {{< fa brands python >}} Python          | {{< fa brands r-project >}} R     |
+|:-----------------------------------------|:----------------------------------|
+| [scikit-learn][sklearn-pdp] (`>=0.24.0`) | [iml]                             |
+| [PyCEbox]                                | [ICEbox]                          |
+| [alibi]                                  | [pdp]                             |
+|                                          | [DALEX]                           |
+
+: {tbl-colwidths="[50,50]"}
+
+## Further Reading
+
+- [ICE paper][ice-paper] [@goldstein2015peeking]
+- [*Interpretable Machine Learning* book][iml-book]
+- [scikit-learn example][sklearn-example]
+- FAT Forensics [example][fatf-example] and [tutorial][fatf-tutorial]
+
+## Bibliography
+
+::: {#refs}
+:::
+
+---
+
+[ice-paper]: https://doi.org/10.1080/10618600.2014.907095
+[fatf-example]: https://fat-forensics.org/sphinx_gallery_auto/transparency/xmpl_transparency_ice.html
+[fatf-tutorial]: https://fat-forensics.org/tutorials/model-explainability.html
+[iml]: https://github.com/christophM/iml
+[iml-book]: https://christophm.github.io/interpretable-ml-book/ice.html
+[ICEbox]: https://github.com/kapelner/ICEbox
+[sklearn-pdp]: https://scikit-learn.org/stable/modules/generated/sklearn.inspection.partial_dependence.html
+[sklearn-example]: https://scikit-learn.org/stable/auto_examples/inspection/plot_partial_dependence.html
+[pdp]: https://github.com/bgreenwell/pdp
+[PyCEbox]: https://github.com/AustinRochford/PyCEbox
+[DALEX]: https://github.com/ModelOriented/DALEX
+[alibi]: https://github.com/SeldonIO/alibi

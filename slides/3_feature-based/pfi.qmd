@@ -1,0 +1,1100 @@
+---
+title: "Permutation Feature Importance (PFI)<br>/Model Reliance/"
+subtitle: "(Feature Importance)"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import sklearn.datasets
+import sklearn.inspection
+import sklearn.tree
+import sklearn.svm
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# Get data (Iris) and model ready
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+clf_num = sklearn.svm.SVC(probability=True)
+clf_num.fit(X_num, y_num)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours():
+    colour = '#e4dbbd'
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+other_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][1]
+third_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][2]
+```
+
+# Method Overview
+
+## Explanation Synopsis
+
+<br>
+
+> PFI -- sometimes called *Model Reliance* [@fisher2019all] -- quantifies
+> **importance of a feature** by measuring the change in predictive error
+> incurred when **permuting its values** for a **collection of instances**
+> [@breiman2001random].
+
+<br>
+
+> It communicates **global** (with respect to the *entire* explained model)
+> **feature importance**.
+
+## Rationale
+
+<br>
+
+> PFI was originally introduced for 
+> [{{< fa person-chalkboard >}} Random Forests](../2_glass-box/dt.html)
+> [@breiman2001random] and later generalised to a model-agnostic technique
+> under the name of *Model Reliance* [@fisher2019all].
+
+## Toy Example
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate PFI
+METRICS = {
+    'R-squared': 'r2',
+    'MSE': 'neg_mean_squared_error',
+    'MAE': 'neg_mean_absolute_error',
+    'max': 'max_error',
+    'ACC': 'accuracy'
+}
+def compute_pfi(clf, X, y):
+    pfi = {metric_name: sklearn.inspection.permutation_importance(
+               clf, X, y, scoring=metric, n_repeats=10, random_state=42)
+           for metric_name, metric in METRICS.items()}
+    return pfi
+
+pfi = compute_pfi(clf_num, X_num, y_num)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI
+#| fig-width: 55%
+
+metric = 'ACC'
+
+plt.style.use('default')
+with plt.xkcd():
+    fig, ax = plt.subplots(figsize=(8, 4))
+    fig.patch.set_alpha(0)
+ 
+    x = feature_names
+    y = pfi[metric]['importances_mean']
+    y_err = pfi[metric]['importances_std']
+
+    plt.bar(x, y, width=0.8, yerr=y_err)
+    plt.xticks(rotation=-15)
+
+    # plt.xlabel(f'{METRICS[metric]}'.upper())
+    plt.ylabel(f'Permutation Feature Importance\n({METRICS[metric]})'.upper())
+    plt.title(f'PFI for the Iris data set'.upper())
+
+plt.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+::: {.notes}
+- You could use box plots or violin plots as an alternative
+  visualisation technique.
+:::
+
+## Method Properties
+
+<br>
+
+| *Property*           | **Permutation Feature Importance**                    |
+|----------------------|-------------------------------------------------------|
+| *relation*           | post-hoc                                              |
+| *compatibility*      | model-agnostic                                        |
+| *modelling*          | regression, crisp and probabilistic classification    |
+| *scope*              | global (per data set; generalises to cohort)          |
+| *target*             | model (set of predictions)                            |
+
+## Method Properties {{< meta subs.ctd >}}
+
+<br>
+
+| *Property*           | **Permutation Feature Importance**                    |
+|----------------------|-------------------------------------------------------|
+| *data*               | tabular                                               |
+| *features*           | numerical and categorical                             |
+| *explanation*        | feature importance (numerical reporting, visualisation) |
+| *caveats*            | feature correlation, model's goodness of fit, access to data labels, robustness (randomness of permutation) |
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# (Algorithmic) Building Blocks
+
+## Computing PFI
+
+<br>
+
+::: {.callout-note}
+## Input
+
+1. Optionally, select a **subset of features to explain**
+2. Select a **predictive performance metric** to assess degradation of utility
+   when permuting the features;
+   it has to be compatible with the type of the modelling problem
+   (crisp classification, probabilistic classification or regression)
+3. Select a **collection of instances** to generate the explanation
+:::
+
+## Computing PFI {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-caution}
+## Parameters
+
+1. Define the **number of rounds** during which feature values will be permuted
+   and the drop in performance recorded
+2. Specify the permutation protocol
+:::
+
+<br>
+<br>
+
+::: {.callout-important}
+## Permutation Protocol
+
+PFI is limited to *tabular data* primarily due to he nature of the employed
+feature permutation protocol.
+In theory, this limitation can be overcome and PFI expanded to other data types
+if a meaningful permutation strategy -- or a suitable proxy -- can be designed.
+:::
+
+## Computing PFI {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure
+
+1. Calculate predictive performance of the explained model on the provided data
+   using the designated metric
+2. For each feature selected to be explained, permute its values
+
+    * Evaluate performance of the explained model on the altered data set
+    * Quantify the change in predictive performance
+
+3. Repeat the process the number of times specified by the user to improve
+   the reliability of the importance estimate
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Theoretical Underpinning
+
+## Formulation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+I_{\textit{PFI}}^{j} =
+  \frac{1}{N} \sum_{i = 1}^N
+    \frac{\overbrace{\mathcal{L}(f(X^{(j)}), Y)}^{\text{permute feature j}}}{\mathcal{L}(f(X), Y)}
+$$
+
+::: {.notes}
+- $N$ -- number of runs
+:::
+
+## Performance Change Quantification &nbsp;&nbsp;&nbsp;{{< fa desktop >}}
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+- Difference
+  $$
+  \mathcal{L}(f(X^{(j)}), Y)
+  -
+  \mathcal{L}(f(X), Y)
+  $$
+- Quotient
+  $$
+  \frac{\mathcal{L}(f(X^{(j)}), Y)}{\mathcal{L}(f(X), Y)}
+  $$
+:::
+
+::: {.column width="50%"}
+- Percent change <!--increase in misclassification rate-->
+  $$
+  100 \times \frac{\mathcal{L}(f(X^{(j)}), Y) - \mathcal{L}(f(X), Y)}{\mathcal{L}(f(X), Y)}
+  $$
+:::
+
+::::
+
+::: {.notes}
+- Using the *quotient* (ratio) or *percentage change* makes the metric
+  comparable across different problems
+  (in contrast to the *difference*, which is not invariant to scale)
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Variants
+
+## Selecting Data
+
+<br>
+
+* PFI needs a **representative** sample of data to output a meaningful
+  explanation
+* The meaning of PFI is decided by the sample of data used for its generation
+* Some choices are
+
+    - **Training Data** -- instances used to train the explained model
+    - **Validation Data** -- instances used to evaluate the
+      predictive performance the explained model;
+      also employed for hyperparameter tuning
+    - **Test Data** -- instances used to estimate the final, unbiased
+      predictive performance of the explained model
+    - **Explainability Data** -- a separate pool of instances reserved for
+      explaining the behaviour of the model
+
+```{python}
+#| echo: false
+#| output: false
+
+# Inject random feature
+feature_selector = [0, 1]
+
+rng = np.random.default_rng(seed=84)
+rnd_col = rng.integers(0, 250, (X_num.shape[0], 1)) / 100  # 500
+X_num_rnd = np.append(X_num[:, feature_selector], rnd_col, axis=1)
+X_num_rnd, X_num_rnd_test, y_num_train, y_num_test = sklearn.model_selection.train_test_split(
+    X_num_rnd, y_num, test_size=.2, stratify=y_num, random_state=42)
+
+feature_names_ = [feature_names[i] for i in feature_selector] + ['random']
+
+clf_rnd = sklearn.tree.DecisionTreeClassifier(
+    max_depth=100, min_samples_leaf=1, min_samples_split=1,
+    random_state=42)
+clf_rnd.fit(X_num_rnd, y_num_train)
+```
+
+## PFI Based on Training Data
+
+<br>
+
+> This explanation communicates how the model relies on data features
+> **during training**, but not necessarily how the features influence
+> predictions of unseen instances.
+> The model may learn a relationship between a feature and the target variable
+> that is due to a quirk of the training data -- a random pattern present only
+> in the training data sample that, e.g., due to *overfitting*, can add some
+> extra performance just for predicting the training data.
+
+## PFI Based on Training Data {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate training data-based PFI
+pfi_train = {metric_name: sklearn.inspection.permutation_importance(
+             clf_rnd, X_num_rnd, y_num_train,
+             scoring=metric, n_repeats=100, random_state=42)
+        for metric_name, metric in METRICS.items()}
+pfi_test = {metric_name: sklearn.inspection.permutation_importance(
+            clf_rnd, X_num_rnd_test, y_num_test,
+            scoring=metric, n_repeats=100, random_state=42)
+        for metric_name, metric in METRICS.items()}
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI based on training data
+#| fig-width: 55%
+
+metric = 'ACC'
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+y = pfi_train[metric]['importances_mean']
+y_err = pfi_train[metric]['importances_std']
+
+plt.bar(feature_names_, y, width=0.8, yerr=y_err)
+plt.xticks(rotation=-15)
+
+plt.ylabel(f'Feature Importance ({METRICS[metric]})')
+plt.title(f'PFI based on the Iris training data set')
+
+plt.show()
+```
+
+::: {.notes}
+- Here we train a model on 2 features of the Iris data set --
+  *sepal length (cm)* and *sepal width (cm)* -- expanded with 1 random feature
+- The model has learnt to rely on this random feature in conjunction with the
+  real features possibly due to spurious correlations between these attributes
+  found in the training data
+:::
+
+## PFI Based on Test Data
+
+<br>
+
+> The spurious correlations between data features and the target
+> found **uniquely** in the *training data* or extracted due to **overfitting**
+> are **absent** in the *test data* (previously unseen by the model).
+> This allows PFI to communicate how useful each feature is for predicting
+> the target, or whether some of the data feature contributed to overfitting.
+
+## PFI Based on Test Data {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI based on test data
+#| fig-width: 55%
+
+metric = 'ACC'
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+y = pfi_test[metric]['importances_mean']
+y_err = pfi_test[metric]['importances_std']
+
+plt.bar(feature_names_, y, width=0.8, yerr=y_err)
+plt.xticks(rotation=-15)
+
+plt.ylabel(f'Feature Importance ({METRICS[metric]})')
+plt.title(f'PFI based on the Iris test data set')
+
+plt.show()
+```
+
+::: {.notes}
+- When the spurious pattern is broken the predictive performance may show
+  improvement on permuted instances.
+- **Negative PFI** indicates this behaviour.
+:::
+
+## Other Measures of Feature Importance
+
+<br>
+
+### PD-based Feature Importance
+
+<br>
+
+> We can measure feature importance with alternative techniques such as
+> [{{< fa person-chalkboard >}} Partial Dependence](./pd.html)-based
+> feature importance.
+> This metric may not pick up the **random feature's lack of predictive power**
+> since PD generates *unrealistic instances* that could follow the spurious
+> pattern found in the training data.
+
+## Other Measures of Feature Importance {{< meta subs.ctd >}}
+
+<br>
+
+### PD-based Feature Importance {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate PD-based importance (training data)
+i_pd = []
+for i in range(X_num_rnd.shape[1]):
+    ice_pd_ = sklearn.inspection.partial_dependence(
+        clf_rnd, X_num_rnd, features=[i],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    i_per_class = []
+    for cid in range(3):
+        i_pd_mean = np.mean(ice_pd_['average'][cid])
+        i_pd_items = ice_pd_['average'][cid].shape[0]
+        i_pd_ = 0
+        for j in range(i_pd_items):
+            i_pd_ += (ice_pd_['average'][cid][j] - i_pd_mean)**2
+        i_pd_ /= i_pd_items - 1
+        i_pd_ = np.sqrt(i_pd_)
+        i_per_class.append(i_pd_)
+    i_pd.append(i_per_class)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PD-based feature importance (training data)
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.title(f'PD-based feature importance for Iris training data')
+
+bar_width = .5 / 3
+x_ = list(range(len(feature_names_)))
+for cid in range(3):
+    y_ = []
+    for fid in range(X_num_rnd.shape[1]):
+        y_.append(i_pd[fid][cid])
+    plt.bar([i - (bar_width * (1 - cid)) for i in x_], y_,
+            bar_width, label=f'{target_names[cid]}')
+
+plt.xticks(x_, labels=feature_names_, rotation=-15)
+
+plt.ylabel(f'Feature Importance')
+
+plt.legend(loc='upper right', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.show()
+```
+
+::: {.notes}
+- The advantage of this technique is that we can have
+  *per-class feature importance estimates* given the nature of PD.
+:::
+
+## Other Measures of Feature Importance {{< meta subs.ctd >}}
+
+<br>
+
+### PD-based Feature Importance {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate PD-based importance (test data)
+i_pd = []
+for i in range(X_num_rnd_test.shape[1]):
+    ice_pd_ = sklearn.inspection.partial_dependence(
+        clf_rnd, X_num_rnd_test, features=[i],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    i_per_class = []
+    for cid in range(3):
+        i_pd_mean = np.mean(ice_pd_['average'][cid])
+        i_pd_items = ice_pd_['average'][cid].shape[0]
+        i_pd_ = 0
+        for j in range(i_pd_items):
+            i_pd_ += (ice_pd_['average'][cid][j] - i_pd_mean)**2
+        i_pd_ /= i_pd_items - 1
+        i_pd_ = np.sqrt(i_pd_)
+        i_per_class.append(i_pd_)
+    i_pd.append(i_per_class)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PD-based feature importance (test data)
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.title(f'PD-based feature importance for Iris test data')
+
+bar_width = .5 / 3
+x_ = list(range(len(feature_names_)))
+for cid in range(3):
+    y_ = []
+    for fid in range(X_num_rnd_test.shape[1]):
+        y_.append(i_pd[fid][cid])
+    plt.bar([i - (bar_width * (1 - cid)) for i in x_], y_,
+            bar_width, label=f'{target_names[cid]}')
+
+plt.xticks(x_, labels=feature_names_, rotation=-15)
+
+plt.ylabel(f'Feature Importance')
+
+plt.legend(loc='upper right', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.show()
+```
+
+## Other Measures of Feature Importance {{< meta subs.ctd >}}
+
+<br>
+
+### PD-based Feature Importance {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate PD-based importance (all data)
+X_num_rnd_all = np.concatenate([X_num_rnd, X_num_rnd_test], axis=0)
+i_pd = []
+for i in range(X_num_rnd_all.shape[1]):
+    ice_pd_ = sklearn.inspection.partial_dependence(
+        clf_rnd, X_num_rnd_all, features=[i],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+
+    i_per_class = []
+    for cid in range(3):
+        i_pd_mean = np.mean(ice_pd_['average'][cid])
+        i_pd_items = ice_pd_['average'][cid].shape[0]
+        i_pd_ = 0
+        for j in range(i_pd_items):
+            i_pd_ += (ice_pd_['average'][cid][j] - i_pd_mean)**2
+        i_pd_ /= i_pd_items - 1
+        i_pd_ = np.sqrt(i_pd_)
+        i_per_class.append(i_pd_)
+    i_pd.append(i_per_class)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PD-based feature importance (all data)
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.title(f'PD-based feature importance for all Iris data')
+
+bar_width = .5 / 3
+x_ = list(range(len(feature_names_)))
+for cid in range(3):
+    y_ = []
+    for fid in range(X_num_rnd_all.shape[1]):
+        y_.append(i_pd[fid][cid])
+    plt.bar([i - (bar_width * (1 - cid)) for i in x_], y_,
+            bar_width, label=f'{target_names[cid]}')
+
+plt.xticks(x_, labels=feature_names_, rotation=-15)
+
+plt.ylabel(f'Feature Importance')
+
+plt.legend(loc='upper right', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.show()
+```
+
+## Other Measures of Feature Importance {{< meta subs.ctd >}}
+
+<br>
+
+### Tree-based Feature Importance
+
+> Since the underlying predictive model (the one being explained) is
+> a [{{< fa person-chalkboard >}} Decision Tree](../2_glass-box/dt.html),
+> we have access to its **native estimate of feature importance**.
+> It conveys the overall **decrease in the chosen impurity metric** for all
+> splits based on a given feature, by default calculated over the training data.
+
+<br>
+<br>
+
+::: {.callout-important}
+## Estimate Based on Alternative Data Set
+
+Consider implementing the same feature importance calculation protocol for
+other data sets, e.g., the test data.
+:::
+
+## Other Measures of Feature Importance {{< meta subs.ctd >}}
+### Tree-based Feature Importance {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tree-based feature importance
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.title(f'Tree-based feature importance for the Iris data set')
+
+plt.bar(feature_names_, clf_rnd.feature_importances_, width=0.8)
+plt.xticks(rotation=-15)
+
+plt.ylabel(f'Feature Importance')
+
+plt.show()
+```
+
+::: {.notes}
+- Since this measurement is also based on training data, the random feature is
+  considered important.
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+## PFI -- Bar Plot
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI bar plot
+#| fig-width: 55%
+
+metric = 'ACC'
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+y = pfi[metric]['importances_mean']
+y_err = pfi[metric]['importances_std']
+
+plt.bar(feature_names, y, width=0.8, yerr=y_err)
+plt.xticks(rotation=-15)
+
+plt.ylabel(f'Feature Importance ({METRICS[metric]})')
+plt.title(f'PFI based on the Iris test data set')
+
+plt.show()
+```
+
+::: {.notes}
+- The error bar -- the black vertical line attache to the top of each PFI bar --
+  communicates the **standard deviation** of calculating PFI over multiple runs.
+:::
+
+## PFI -- Box Plot
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI box plot
+#| fig-width: 55%
+
+metric = 'ACC'
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+x = list(range(len(feature_names)))
+y = pfi[metric]['importances'].tolist()
+
+x_ = np.array([len(v)*[x[i]] for i, v in enumerate(y)]).flatten().tolist()
+y_ = np.array(y).flatten().tolist()
+plt.scatter(x_, y_, marker='o', s=15, zorder=5, alpha=0.3)
+
+plt.boxplot(y, positions=x, widths=0.4, showmeans=True)
+
+plt.xticks(x, feature_names, rotation=-15)
+
+plt.ylabel(f'Feature Importance ({METRICS[metric]})')
+plt.title(f'PFI based on the Iris test data set')
+
+plt.show()
+```
+
+::: {.notes}
+- The data are based on multiple runs of PFI calculation
+  with different permutation of the explained feature
+- The box plots show:
+
+    * green line -- median
+    * box -- stretches between lower and upper quartiles
+    * whiskers -- span the range of data
+    * flier points -- none shown
+
+- Additionally, the plot visualises:
+
+    * red triangle -- mean
+    * blue points -- individual PFI scores
+:::
+
+## PFI -- Violin Plot
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI violin plot
+#| fig-width: 55%
+
+metric = 'ACC'
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+x = list(range(len(feature_names)))
+y = pfi[metric]['importances'].tolist()
+x_ = np.array([len(v)*[x[i]] for i, v in enumerate(y)]).flatten().tolist()
+y_ = np.array(y).flatten().tolist()
+y_mean = pfi[metric]['importances_mean'].tolist()
+
+plt.scatter(x, y_mean, marker='x', s=40, zorder=10)
+plt.scatter(x_, y_, marker='o', s=15, zorder=20, alpha=0.3)
+plt.violinplot(y, positions=x, widths=0.8)
+
+plt.xticks(x, feature_names, rotation=-15)
+
+plt.ylabel(f'Feature Importance ({METRICS[metric]})')
+plt.title(f'PFI based on the Iris test data set')
+
+plt.show()
+```
+
+::: {.notes}
+- The data are based on multiple runs of PFI calculation
+  with different permutation of the explained feature
+- The violin plots show the distribution of importance scores for each feature
+  (density estimated using a Gaussian kernel)
+- This is supplemented by:
+
+    * green points -- individual PFI scores
+    * blue cross -- mean
+:::
+
+## PFI for Different Metrics
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PFI for a selection of metrics
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.title(f'PFI for the Iris data set')
+
+n = len(METRICS)
+bar_width = .75 / n
+x_ = list(range(len(feature_names)))
+for cid, metric in enumerate(METRICS):
+    y = pfi[metric]['importances_mean']
+    y_err = pfi[metric]['importances_std']
+    plt.bar([i - (bar_width * (2 - cid)) for i in x_], y, yerr=y_err,
+            width=bar_width, label=f'{metric}')
+
+plt.xticks(x_, labels=feature_names, rotation=-15)
+
+plt.ylabel(f'Feature Importance')
+
+plt.legend(loc='upper left', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.show()
+```
+
+::: {.notes}
+- The Importance score range and proportion is influenced by the selected
+  predictive performance metric
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Case Studies & Gotchas!
+
+## Out-of-distribution (Impossible) Instances
+
+```{python}
+#| echo: false
+#| output: false
+
+density = sklearn.neighbors.KernelDensity(kernel='gaussian', bandwidth=0.5)
+density.fit(X_num)
+
+density_scores = []
+for feature_id in range(X_num.shape[1]):
+    rng = np.random.default_rng(seed=42)
+    X_num_perm = np.copy(X_num)
+    X_num_perm[:, feature_id] = rng.permutation(X_num_perm[:, feature_id])
+
+    density_scores.append(np.exp(density.score_samples(X_num_perm)).tolist())
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Likelihood of instances with a permuted feature belonging to the Iris data set
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+x = list(range(len(feature_names)))
+x_ = np.array([len(v)*[x[i]] for i, v in enumerate(density_scores)]).flatten().tolist()
+y_ = np.array(density_scores).flatten().tolist()
+y_mean = [np.mean(i) for i in density_scores]
+
+plt.scatter(x, y_mean, marker='x', s=100, zorder=10)
+plt.scatter(x_, y_, marker='_', s=40, zorder=5, alpha=0.5, c=third_colour)
+plt.violinplot(density_scores, positions=x, widths=0.8)
+
+plt.xticks(x, feature_names, rotation=-15)
+
+plt.ylabel('Membership Likelihood')
+plt.title('Likelihood of permuted instances belonging to the Iris data set')
+
+plt.show()
+```
+
+::: {.notes}
+- Permutation results in out-of-distribution instances,
+  therefore PFI may not be reliable
+:::
+
+## Feature Correlation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature correlation
+#| fig-width: 55%
+
+X_num_corr = np.flipud(np.corrcoef(X_num, rowvar=False))
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(X_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks(np.arange(len(feature_names)), labels=feature_names[::-1])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for i in range(len(feature_names)):
+    for j in range(len(feature_names)):
+        text = ax.text(j, i, f'{X_num_corr[i, j]:1.2f}',
+                       ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+::: {.notes}
+- In the case of the Iris data set, the out-of-distribution instances are
+  predominantly caused by strong feature correlation
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Properties
+
+## Pros &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+- **Easy to generate and interpret**
+- **All of the features can be explained at the same time**
+- **Computationally efficient** in comparison to a brute-force approach
+  such as *leave-one-out and retrain*
+  (which also has a different interpretation)
+- Accounts for the importance of the explained feature and all of its
+  **interactions with other features**
+  (which can also be considered a *disadvantage*)
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+- Requires **access to ground truth** (i.e., data and their labels)
+- Influenced by **randomness of permuting feature values**
+  (somewhat abated by repeating the calculation mulitple times
+  at the expense of extra compute)
+- **Relies on the underlying model's goodness of fit**
+  since it is based on (the drop in) a predictive perfromance metric
+  (in contrast to a more generic change in predictive behaviour --
+  think predictive **robustness**)
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}} {{< meta subs.ctd >}}
+
+- Assumes **feature independence**, which is often unreasonable
+- May not reflect the true feature importance since it is based upon
+  the predictive ability of the model for **unrealistic instances**
+
+- In presence of feature interaction, the **importance** --
+  that one of the attributes would accumulate if alone --
+  may be **distributed** across all of them in an arbitrary fashion
+  (pushing them down the order of importance)
+
+- Since it accounts for indiviudal and interaction importance,
+  the latter component is **accounted for multiple times**,
+  making the sum of the scores inconsistent with (larger than) the drop in
+  predictive performance (for the difference-based variant)
+
+::: {.notes}
+- **Caveat:** The **importance distribution** *only* reflects how the model
+  perceives the importance of feature (i.e., its behaviour) and not their
+  **true importance** (i.e., ability to aid in predicting the target)
+:::
+
+## Caveats &nbsp;&nbsp;&nbsp;{{< fa skull >}}
+
+- PFI is parameterised by:
+
+    * data set
+    * predictive performance metric
+    * number of repetitions
+
+- Generating PFI may be computationally expensive for *large sets of data* and
+  *high number of repetitions*
+- Computational complexity: $\mathcal{O} \left( n \times d \right)$, where
+  * $n$ is the number of instances in the designated data set and
+  * $d$ is the number of permutation repetitions
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Further Considerations
+
+## Related Techniques
+
+<br>
+
+### Built-in Feature Importance
+
+> Many data-driven predictive models come equipped with some variant of
+> feature importance.
+> This includes
+> [{{< fa person-chalkboard >}} Decision Trees](../2_glass-box/dt.html) and
+> [{{< fa person-chalkboard >}} Linear Models](../2_glass-box/lm.html)
+> among many others.
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### Partial Dependence-based (PD) Feature Importance
+
+> [{{< fa person-chalkboard >}}](pd.html#/pd-based-feature-importance) &nbsp;&nbsp;&nbsp;
+> *Partial Dependence* captures the **average response of a predictive model**
+> for a **collection of instances** when **varying one of their features**
+> [@friedman2001greedy].
+> By assessing **flatness** of these curves we can derive
+> a feature importance measurement [@greenwell2018simple].
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### SHapley Additive exPlanations-based (SHAP) Feature Importance
+
+> [{{< fa person-chalkboard >}}](../5_meta/shap.html) &nbsp;&nbsp;&nbsp;
+> *SHapley Additive exPlanations* explains a prediction of a selected instance
+> by using *Shapley values* to computing the contribution of each individual
+> feature to this outcome [@lundberg2017unified].
+> It comes with various *aggregation mechanisms* that allow to transform
+> individual explanations into global, model-based insights such as
+> *feature importance*.
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### Local Interpretable Model-agnostic Explanations-based (LIME) Feature Importance
+
+> [{{< fa person-chalkboard >}}](../5_meta/lime.html) &nbsp;&nbsp;&nbsp;
+> *Local Interpretable Model-agnostic Explanations* is a surrogate explainer
+> that fits a linear model to data (expressed in an interpretable representaion)
+> sampled in the neighbourhood of an instance selected to be explained
+> [@ribeiro2016should].
+> This local, inherently transparent model simplifies the black-box decision
+> boundary in the selected sub-space, making it human-comprehensible.
+> Given that these explanations are based on
+> **coefficients of the surrogate linear model**, they can also be interpreted
+> as (interpretable) feature importance.
+
+<!--
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### $P$-values Computed with Permutation Importance (PIMP)
+
+> $P$-values Computed with Permutation Importance [@altmann2010permutation].
+-->
+
+## Implementations
+
+| {{< fa brands python >}} Python          | {{< fa brands r-project >}} R     |
+|:-----------------------------------------|:----------------------------------|
+| [scikit-learn][sklearn-pfi] (`>=0.24.0`) | [iml]                             |
+| [alibi]                                  | [vip]                             |
+| [Skater]                                 | [DALEX]                           |
+| [rfpimp]                                 |                                   |
+
+: {tbl-colwidths="[50,50]"}
+
+## Further Reading
+
+- [Random Forests paper][rf-paper] [@breiman2001random]
+- [Model Reliance paper][mr-paper] [@fisher2019all]
+- [Overview of feature importance techniques][fi-paper] [@wei2015variable]
+- [*Interpretable Machine Learning* book][iml-book]
+- [*Explanatory Model Analysis* book][ema-book]
+- [Kaggle course][kaggle-course]
+- scikit-learn examples: [1][sklearn-example-1] & [2][sklearn-example-2]
+
+## Bibliography
+
+::: {#refs}
+:::
+
+---
+
+[sklearn-pfi]: https://scikit-learn.org/stable/modules/generated/sklearn.inspection.permutation_importance.html
+[alibi]: https://github.com/SeldonIO/alibi
+[Skater]: https://github.com/oracle/Skater
+[rfpimp]: https://github.com/parrt/random-forest-importances
+
+[iml]: https://github.com/christophM/iml
+[vip]: https://github.com/koalaverse/vip
+[DALEX]: https://github.com/ModelOriented/DALEX
+
+[rf-paper]: https://www.doi.org/10.1023/A:1010933404324
+[mr-paper]: https://jmlr.org/papers/v20/18-760.html
+[fi-paper]: https://doi.org/10.1016/j.ress.2015.05.018
+[iml-book]: https://christophm.github.io/interpretable-ml-book/feature-importance.html
+[ema-book]: https://ema.drwhy.ai/featureImportance.html
+[kaggle-course]: https://www.kaggle.com/code/dansbecker/permutation-importance
+[sklearn-example-1]: https://scikit-learn.org/stable/auto_examples/inspection/plot_permutation_importance.html
+[sklearn-example-2]: https://scikit-learn.org/stable/auto_examples/inspection/plot_permutation_importance_multicollinear.html

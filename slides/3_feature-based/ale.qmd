@@ -1,0 +1,2312 @@
+---
+title: "Accumulated Local Effect (ALE)"
+subtitle: "(Feature Influence)"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import scipy
+import sklearn.datasets
+import sklearn.inspection
+import sklearn.tree
+import sklearn.svm
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+import alepython
+import pandas as pd
+import seaborn as sns
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours():
+    colour = '#e4dbbd'
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+other_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][1]
+third_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][2]
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# Get data and model ready
+# Iris -- numerical
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+clf_num = sklearn.svm.SVC(probability=True)
+clf_num.fit(X_num, y_num)
+
+# Iris -- categorical
+X_cat, y_cat = np.array(X_num), y_num
+_map = X_num[:, 3] < 0.8
+X_cat[_map, 3] = 0
+_map = np.logical_and((X_num[:, 3] >= 0.8), (X_num[:, 3] < 1.35))
+X_cat[_map, 3] = 1
+_map = X_num[:, 3] >= 1.35
+X_cat[_map, 3] = 2
+cat_map = {0: 'low (x<0.8)', 1: 'medium (0.8≤x<1.35)', 2: 'high (1.35≤x)'}
+clf_cat = sklearn.tree.DecisionTreeClassifier(min_samples_leaf=10)
+clf_cat.fit(X_cat, y_cat)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# Accumulated Local Effect (ALE)
+def compute_ale(data, pred_fn, feature, class_, bins=10, quantiles=False):
+    if quantiles:
+        quantiles = np.linspace(0, 1, bins+1)
+        edges = np.quantile(data[:, feature], quantiles)
+        # Round to the first decimal place to replicate the behaviour of
+        # the alepython Python package
+    else:
+        edges = np.histogram_bin_edges(data[:, feature], bins=bins)
+    edges_ = np.copy(edges)
+    # ensure that all of the instances (the edge cases) are included
+    edges[0] = edges[0] - 0.1
+    edges[bins] = edges[bins] + 0.1
+
+    # `right=True` to replicate the behaviour of the alepython Python package
+    bin_ids = np.digitize(data[:, feature], edges, right=True)
+    assert 0 not in bin_ids
+    assert bins + 1 not in bin_ids
+
+    fu_mean, fu_std, fu_count = [], [], []
+    for i in range(1, bins + 1):
+        instance_idx = (bin_ids == i)
+        instances = data[instance_idx, :]
+
+        fu_count.append(instances.shape[0])
+
+        if instances.shape[0]:
+            ale_instances_min = np.copy(instances)
+            ale_instances_min[:, feature] = edges_[i-1]
+            ale_instances_max = np.copy(instances)
+            ale_instances_max[:, feature] = edges_[i]
+
+            ale = (
+                pred_fn(ale_instances_max)[:, class_]
+                - pred_fn(ale_instances_min)[:, class_])
+
+            ale_mean = ale.mean()
+            ale_std = ale.std()
+        else:
+            ale_mean = 0
+            ale_std = 0
+
+        # accumulate local effects
+        # ale_mean_ = sum(fu_mean) + ale_mean
+        fu_mean.append(ale_mean)
+        fu_std.append(ale_std)
+
+    # accumulate local effects
+    # fu_mean = np.array([sum(fu_mean[:i]) for i in range(1, len(fu_mean)+1)])
+    fu_mean = np.cumsum(fu_mean)
+
+    # centre the effect
+    ## estimate effect in the middle of each bin
+    fu_mean = np.insert(fu_mean, 0, 0)
+    fu_mean = (fu_mean + (np.roll(fu_mean, shift=-1) - fu_mean) / 2)[:-1]
+    ## estimate the overall mean effect
+    assert len(fu_mean) == len(fu_count)
+    average_effect = np.sum(fu_mean * fu_count) / np.sum(fu_count)
+    fu_mean = fu_mean - average_effect
+
+    return edges_, np.array(fu_mean), np.array(fu_std), fu_count, average_effect  #, fu
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def ale_plot(
+    model,
+    train_set,
+    features,
+    bins=10,
+    monte_carlo=False,
+    predictor=None,
+    features_classes=None,
+    monte_carlo_rep=50,
+    monte_carlo_ratio=0.1,
+    rugplot_lim=1000,
+):
+    """Plots ALE function of specified features based on training set.
+    Parameters
+    ----------
+    model : object
+        An object that implements a 'predict' method. If None, a `predictor` function
+        must be supplied which will be used instead of `model.predict`.
+    train_set : pandas.core.frame.DataFrame
+        Training set on which model was trained.
+    features : [2-iterable of] column label
+        One or two features for which to plot the ALE plot.
+    bins : [2-iterable of] int, optional
+        Number of bins used to split feature's space. 2 integers can only be given
+        when 2 features are supplied in order to compute a different number of
+        quantiles for each feature.
+    monte_carlo : boolean, optional
+        Compute and plot Monte-Carlo samples.
+    predictor : callable
+        Custom prediction function. See `model`.
+    features_classes : iterable of str, optional
+        If features is first-order and a categorical variable, plot ALE according to
+        discrete aspect of data.
+    monte_carlo_rep : int
+        Number of Monte-Carlo replicas.
+    monte_carlo_ratio : float
+        Proportion of randomly selected samples from dataset for each Monte-Carlo
+        replica.
+    rugplot_lim : int, optional
+        If `train_set` has more rows than `rugplot_lim`, no rug plot will be plotted.
+        Set to None to always plot rug plots. Set to 0 to always plot rug plots.
+    Raises
+    ------
+    ValueError
+        If both `model` and `predictor` are None.
+    ValueError
+        If `len(features)` not in {1, 2}.
+    ValueError
+        If multiple bins were given for 1 feature.
+    NotImplementedError
+        If `features_classes` is not None.
+    """
+    if model is None and predictor is None:
+        raise ValueError("If 'model' is None, 'predictor' must be supplied.")
+
+    if features_classes is not None:
+        raise NotImplementedError("'features_classes' is not implemented yet.")
+
+    fig, ax = plt.subplots()
+    fig.patch.set_alpha(0)
+
+    features = alepython.ale._parse_features(features)
+
+    if len(features) == 1:
+        if not isinstance(bins, (int, np.integer)):
+            raise ValueError("1 feature was given, but 'bins' was not an integer.")
+
+        if features_classes is None:
+            # Continuous data.
+
+            if monte_carlo:
+                mc_replicates = np.asarray(
+                    [
+                        [
+                            np.random.choice(range(train_set.shape[0]))
+                            for _ in range(int(monte_carlo_ratio * train_set.shape[0]))
+                        ]
+                        for _ in range(monte_carlo_rep)
+                    ]
+                )
+                for k, rep in enumerate(mc_replicates):
+                    train_set_rep = train_set.iloc[rep, :]
+                    # Make this recursive?
+                    if features_classes is None:
+                        # The same quantiles cannot be reused here as this could cause
+                        # some bins to be empty or contain disproportionate numbers of
+                        # samples.
+                        mc_ale, mc_quantiles = alepython.ale._first_order_ale_quant(
+                            model.predict if predictor is None else predictor,
+                            train_set_rep,
+                            features[0],
+                            bins,
+                        )
+                        alepython.ale._first_order_quant_plot(
+                            ax, mc_quantiles, mc_ale, color="#1f77b4", alpha=0.06
+                        )
+
+            ale, quantiles = alepython.ale._first_order_ale_quant(
+                model.predict if predictor is None else predictor,
+                train_set,
+                features[0],
+                bins,
+            )
+            alepython.ale._ax_labels(ax, "Feature '{}'".format(features[0]), "")
+            alepython.ale._ax_title(
+                ax,
+                "First-order ALE of feature '{0}'".format(features[0]),
+                "Bins : {0} - Monte-Carlo : {1}".format(
+                    len(quantiles) - 1,
+                    mc_replicates.shape[0] if monte_carlo else "False",
+                ),
+            )
+            ax.grid(True, linestyle="-", alpha=0.4)
+            if rugplot_lim is None or train_set.shape[0] <= rugplot_lim:
+                sns.rugplot(train_set[features[0]], ax=ax, alpha=0.2)
+            alepython.ale._first_order_quant_plot(ax, quantiles, ale, color="black")
+            alepython.ale._ax_quantiles(ax, quantiles)
+
+    elif len(features) == 2:
+        if features_classes is None:
+            # Continuous data.
+            ale, quantiles_list = alepython.ale._second_order_ale_quant(
+                model.predict if predictor is None else predictor,
+                train_set,
+                features,
+                bins,
+            )
+            alepython.ale._second_order_quant_plot(fig, ax, quantiles_list, ale)
+            alepython.ale._ax_labels(
+                ax,
+                "{} with {} bins".format(features[0], [len(quant) - 1 for quant in quantiles_list][0]),
+                "{} with {} bins".format(features[1], [len(quant) - 1 for quant in quantiles_list][1]),
+            )
+            for twin, quantiles in zip(("x", "y"), quantiles_list):
+                alepython.ale._ax_quantiles(ax, quantiles, twin=twin)
+            # Remove percentiles
+            fig.get_axes()[2].set_xticklabels([])
+            fig.get_axes()[3].set_yticklabels([])
+            alepython.ale._ax_title(
+                ax,
+                "Second-order ALE",
+            )
+    else:
+        raise ValueError(
+            "'{n_feat}' 'features' were given, but only up to 2 are supported.".format(
+                n_feat=len(features)
+            )
+        )
+    plt.show()
+    return ax
+```
+
+# Method Overview
+
+## Explanation Synopsis
+
+<br>
+
+> ALE captures the influence of a specific feature value on the model's
+> prediction by quantifying the average (accumulated) **difference** between
+> the predictions at the boundaries of a (small) **fixed interval** around
+> the selected feature value [@apley2020visualizing].
+> It is calculated by replacing the value of the explained feature with the
+> interval boundaries for **instances found in the designated data set**
+> whose value of this feature is within the specified range.
+
+<br>
+
+> It communicates **global** (with respect to the *entire* explained model)
+> **feature influence**.
+
+## Rationale
+
+<br>
+
+> ALE is an evolved version of (relaxed)
+> [{{< fa person-chalkboard >}} Marginal Effect (ME)](me.html)
+> [@apley2020visualizing] that is less prone to being affected by
+> feature correlation since it relies upon average prediction **change**.
+> It also improves upon
+> [{{< fa person-chalkboard >}} Partial Dependence (PD)](pd.html)
+> [@friedman2001greedy] by ensuring that the influence estimates are based on
+> **realistic instances** (thus respecting *interactions between features* /
+> *feature correlation*), making the explanatory insights more truthful.
+
+## Toy Example -- Numerical Feature
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate ALE
+class_id = 0
+feature_id = 2
+
+ale_edges, ale_scores, ale_stds, ale_counts, _ = compute_ale(
+    X_num, clf_num.predict_proba, feature_id, class_id,
+    bins=10, quantiles=True)
+ale_middles = (ale_edges + (np.roll(ale_edges, shift=-1) - ale_edges) / 2)[:-1]
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE for a numerical feature
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+  fig, ax = plt.subplots(figsize=(8, 4))
+  fig.patch.set_alpha(0)
+
+  _min, _max = ale_scores.min()-0.1, ale_scores.max()+0.1
+
+  plt.plot(ale_middles, ale_scores)
+  plt.vlines(ale_middles, _min, _max,
+             alpha=.5, zorder=0,
+             lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+  for where_ in [[0, 1], [4, 5], [9, 10]]:
+    plt.vlines(ale_edges[where_], _min, _max,
+              alpha=.5, zorder=0,
+              lw=.5, ls='-', color=third_colour)
+    plt.fill_betweenx([_min, _max], ale_edges[where_[0]], ale_edges[where_[1]],
+                      alpha=.25, zorder=0, color=third_colour)
+
+  plt.xlabel(f'{feature_names[feature_id]} value'.upper())
+
+  plt.ylabel((f'{feature_names[feature_id]} effect on\n'
+              f'{target_names[class_id]} probability').upper())
+  ax.yaxis.set_major_formatter(lambda f, pos: f'{f:2.1f}')
+  # ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+  plt.title(f'ALE for the Iris data set'.upper())
+
+plt.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+::: {.notes}
+- ALE values is the change in the output of the predictive model --
+  probability of a particular class here -- within feature partitions
+  over the range of the feature, in reference to the average prediction
+
+- ALE values can be interpreted as the
+  (*main*) *effect of the feature at a certain value* (middle of the bin)
+  compared to its average effect;
+  e.g., the estimate of +0.15 at *petal length (cm)* 2.75, communicates that
+  for this particular feature value the effect is higher by 0.15 than
+  the average effect of -0.59
+:::
+
+## Method Properties
+
+<br>
+
+| *Property*           | **Accumulated Local Effect**                          |
+|----------------------|-------------------------------------------------------|
+| *relation*           | post-hoc                                              |
+| *compatibility*      | model-agnostic                                        |
+| *modelling*          | regression and probabilistic classification (numbers) |
+| *scope*              | global (per data set; generalises to cohort)          |
+| *target*             | model (set of predictions)                            |
+
+::: {.notes}
+- Because of the difference in prediction at bin boundaries,
+  ALE does not work with **crisp** classifiers
+:::
+
+## Method Properties {{< meta subs.ctd >}}
+
+<br>
+
+| *Property*           | **Accumulated Local Effect**                          |
+|----------------------|-------------------------------------------------------|
+| *data*               | tabular                                               |
+| *features*           | numerical (ordinal categorical)                       |
+| *explanation*        | feature influence (visualisation)                     |
+| *caveats*            | feature binning                                       |
+
+::: {.notes}
+- Because of pushing instances to bin boundaries created for the explained
+  feature -- to calculate the difference in prediction at these two points --
+  ALE does not work with **categorical** features out of the box
+- This limitation can be overcome by establishing an
+  [order among categorical features][categorical-features]
+- For example, the order can be induced by comparing similarity between
+  categories based on other feature values
+:::
+
+[categorical-features]: https://christophm.github.io/interpretable-ml-book/ale.html#estimation
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# (Algorithmic) Building Blocks
+
+## Computing ALE
+
+<br>
+
+::: {.callout-note}
+## Input
+
+1. Select a **feature to explain**
+2. Select the **explanation target**
+
+    * probabilistic classifiers &rarr; (probabilities of) one class
+    * regressors &rarr; numerical values
+
+3. Select a **collection of instances** to generate the explanation
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-caution}
+## Parameters
+
+1. Define **binning** of the explained (**numerical**) feature
+
+    * select the number of bins
+    * decide on fixed-width, quantile or custom binning
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure
+
+1. For each instance in the designated data set, assign it to a bin that spans
+   the range to which the value of its explained feature belongs
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+class_id = 0
+feature_id = 2
+
+bins = 5
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# ALE step 1
+predictions = clf_num.predict_proba(X_num)[:, class_id]
+
+quantiles = np.linspace(0, 1, bins+1)
+edges = np.quantile(X_num[:, feature_id], quantiles)
+
+edges_ = np.copy(edges)
+# ensure that all of the instances (the edge cases) are included
+edges_[0] = edges_[0] - 0.1
+edges_[bins] = edges_[bins] + 0.1
+
+middles = (edges + (np.roll(edges, shift=-1) - edges) / 2)[:-1]
+
+# `right=True` to replicate the behaviour of the alepython Python package
+bin_ids = np.digitize(X_num[:, feature_id], edges_, right=True)
+assert 0 not in bin_ids
+assert bins + 1 not in bin_ids
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 1
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+_min, _max = 0, 1
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+plt.scatter(X_num[:, feature_id], predictions,
+            facecolors='none', edgecolors=line_colour, marker='o',
+            s=25, linewidths=2, alpha=.5, zorder=10)
+            
+plt.xlabel(f'{feature_names[feature_id]} value')
+
+plt.ylabel(f'{target_names[class_id]} probability')
+ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE binning for the Iris data set')
+
+plt.show()
+```
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure {{< meta subs.ctd >}}
+
+2. For each instance in each bin, calculate the difference between
+   the prediction of these instances at bin boundaries
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# ALE step 2
+instance_sample = [np.where(bin_ids == i)[0][0]
+                   for i in range(1, bins + 1)]
+
+altered, prediction_diff = [], []
+effect_line_collection, trajectory_line_collection, diff_line_collection = [], [], []
+for instance_idx, i in zip(instance_sample, range(1, bins + 1)):
+    instances = X_num[[instance_idx], :]
+
+    ale_instances_min = np.copy(instances)
+    ale_instances_min[:, feature_id] = edges[i-1]
+
+    ale_instances_max = np.copy(instances)
+    ale_instances_max[:, feature_id] = edges[i]
+
+    altered.append(
+        np.concatenate([ale_instances_min, ale_instances_max], axis=0)
+    )
+
+    ale_prediction_min = clf_num.predict_proba(ale_instances_min)[:, class_id][0]
+    ale_prediction_max = clf_num.predict_proba(ale_instances_max)[:, class_id][0]
+    prediction_diff.append((ale_prediction_min, ale_prediction_max))
+
+    effect_line_collection.append([
+        (edges[i-1], ale_prediction_min),
+        (edges[i], ale_prediction_max)])
+    trajectory_line_collection.append([
+        (edges[i-1], ale_prediction_min),
+        (edges[i], ale_prediction_min)])
+    diff_line_collection.append([
+        (edges[i], ale_prediction_min),
+        (edges[i], ale_prediction_max)])
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 2
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+_min, _max = 0, 1
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+plt.scatter(X_num[instance_sample, feature_id], predictions[instance_sample],
+            facecolors='none', edgecolors=line_colour, marker='o',
+            s=25, linewidths=2, alpha=.5, zorder=10)
+
+lc_effect = mpl.collections.LineCollection(
+    effect_line_collection, colors=line_colour, linewidths=1)
+ax.add_collection(lc_effect)
+lc_trajectory = mpl.collections.LineCollection(
+    trajectory_line_collection, colors=line_colour, linewidths=1, linestyle='dotted')
+ax.add_collection(lc_trajectory)
+lc_diff = mpl.collections.LineCollection(
+    diff_line_collection, colors=line_colour, linewidths=2, linestyle='solid')
+ax.add_collection(lc_diff)
+
+arrow_x = diff_line_collection[1][0][0]
+arrow_y = abs(diff_line_collection[1][1][1] - diff_line_collection[1][0][1]) / 2
+plt.arrow(arrow_x, arrow_y, 0, -.00001, lw=0, head_width=.25, head_length=0.15, color=line_colour)
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+
+plt.ylabel(f'{target_names[class_id]} probability')
+ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE prediction difference for the Iris data set (subset)')
+
+plt.show()
+```
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure {{< meta subs.ctd >}}
+
+3. Calculate the mean change in prediction for each bin
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# ALE steps 3, 4 and 5
+ale_mean, ale_std, ale_count = [], [], []
+min_per_bin_ls = []
+accum_per_bin_ls, accum_full_per_bin_ls, ladder_per_bin_ls = [], [], []
+ale_mid, accum_mid_per_bin_ls, diag_per_bin_ls = [], [], []
+for i in range(1, bins + 1):
+    instance_idx = (bin_ids == i)
+    instances = X_num[instance_idx, :]
+
+    ale_count.append(instances.shape[0])
+
+    ale_instances_min = np.copy(instances)
+    ale_instances_min[:, feature_id] = edges[i-1]
+    ale_instances_max = np.copy(instances)
+    ale_instances_max[:, feature_id] = edges[i]
+
+    ale = (
+        clf_num.predict_proba(ale_instances_max)[:, class_id]
+        - clf_num.predict_proba(ale_instances_min)[:, class_id])
+
+    ale_mean.append(ale.mean())
+    ale_std.append(ale.std())
+
+    # Step 3 -- get mean difference
+    min_per_bin_ls.append([
+        (edges[i], 0),
+        (edges[i], ale.mean())])
+
+    # Step 4 -- accumulate mean difference
+    accum_per_bin_ls.append([
+        (edges[i], sum(ale_mean[:-1])),
+        (edges[i], sum(ale_mean))])
+    accum_full_per_bin_ls.append([
+        (edges[i], 0),
+        (edges[i], sum(ale_mean))])
+    if i != 1:
+        ladder_per_bin_ls.append([
+            (edges[i - 1], sum(ale_mean[:-1])),
+            (edges[i], sum(ale_mean[:-1]))])
+
+    # Step 5 -- centre mean difference
+    if i == 1:
+        l_edge = 0
+    else:
+        l_edge = sum(ale_mean[:-1])
+    r_edge = sum(ale_mean)
+    ale_mid.append(l_edge + (r_edge - l_edge) / 2)
+    accum_mid_per_bin_ls.append([
+        (middles[i - 1], 0),
+        (middles[i - 1], ale_mid[-1])
+    ])
+    diag_per_bin_ls.append([
+        (edges[i - 1], l_edge),
+        (edges[i], r_edge)])
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 3
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+_min, _max = -1, 1
+
+plt.hlines(0, edges[0], edges[-1], color='black', lw=.5, alpha=.5, zorder=1)
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+lc = mpl.collections.LineCollection(
+    min_per_bin_ls, colors=line_colour, linewidths=2, linestyle='solid')
+ax.add_collection(lc)
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+
+plt.ylabel(f'{target_names[class_id]} probability change')
+ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE mean prediction difference for the Iris data set')
+
+plt.show()
+```
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure {{< meta subs.ctd >}}
+
+4. Accumulate the mean change in prediction over the bins
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 4 -- partial
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+_min, _max = -1, 1
+
+plt.hlines(0, edges[0], edges[-1], color='black', lw=.5, alpha=.5, zorder=1)
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+lc_ale = mpl.collections.LineCollection(
+    accum_per_bin_ls, colors=line_colour, linewidths=2, linestyle='solid')
+ax.add_collection(lc_ale)
+
+lc_ale_ladder = mpl.collections.LineCollection(
+    ladder_per_bin_ls, colors='black', linewidths=.5, linestyle='dotted')
+ax.add_collection(lc_ale_ladder)
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+
+plt.ylabel(f'{target_names[class_id]} probability change')
+ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE accumulated mean prediction difference for the Iris data set')
+
+plt.show()
+```
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 4 -- full
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+_min, _max = -1, 1
+
+plt.hlines(0, edges[0], edges[-1], color='black', lw=.5, alpha=.5, zorder=1)
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+lc_ale = mpl.collections.LineCollection(
+    accum_full_per_bin_ls, colors=line_colour, linewidths=2, linestyle='solid')
+ax.add_collection(lc_ale)
+
+lc_ale_ladder = mpl.collections.LineCollection(
+    ladder_per_bin_ls, colors='black', linewidths=.5, linestyle='dotted')
+ax.add_collection(lc_ale_ladder)
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+
+plt.ylabel(f'{target_names[class_id]} probability change')
+ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE accumulated mean prediction difference for the Iris data set')
+
+plt.show()
+```
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure {{< meta subs.ctd >}}
+
+5. Extrapolate the value of the accumulated mean change in prediction
+   in the **middle** of each bin
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 5
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+_min, _max = -1, 1
+
+plt.hlines(0, edges[0], edges[-1], color='black', lw=.5, alpha=.5, zorder=1)
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+# Step 4
+lc_ale = mpl.collections.LineCollection(
+    accum_full_per_bin_ls, colors='black', linewidths=1, linestyle='solid')
+ax.add_collection(lc_ale)
+
+# Step 5
+lc_ale_mid = mpl.collections.LineCollection(
+    accum_mid_per_bin_ls, colors=line_colour, linewidths=2, linestyle='solid')
+ax.add_collection(lc_ale_mid)
+
+lc_ale_ladder = mpl.collections.LineCollection(
+    diag_per_bin_ls, colors='black', linewidths=.5, linestyle='dotted')
+ax.add_collection(lc_ale_ladder)
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+
+plt.ylabel(f'{target_names[class_id]} probability change')
+ax.yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE centred accumulated mean prediction difference for the Iris data set')
+
+plt.show()
+```
+
+## Computing ALE {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure {{< meta subs.ctd >}}
+
+6. **Centre** (the extrapolated value of) the accumulated mean change
+   in prediction in the middle of each bin **around their mean**
+
+{{< fa star >}}&nbsp;&nbsp;&nbsp; Depending on the binning strategy,
+**the number of instances per bin may be distributed unevenly**.
+A **histogram** representing the number of instances in each bin
+can help in interpreting the explanation.
+:::
+
+::: {.notes}
+- Quantile binning offers even distribution of instances per bin,
+  but may result in bins of disparate lengths
+- Other binning may result in underrepresented bins
+:::
+
+## Computing ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+# Step 6 -- centre around the mean effect
+ale_mid_mean = np.sum(np.array(ale_mid) * np.array(ale_count)) / np.sum(ale_count)
+ale_mid_centred = ale_mid - ale_mid_mean
+accum_mid_centred_per_bin_ls = [
+    [i[0], (i[1][0], i[1][1] - ale_mid_mean)]
+    for i in accum_mid_per_bin_ls
+]
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE step 6
+#| fig-width: 55%
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# ALE
+plt.sca(ax[0])
+
+_min, _max = ale_mid_centred.min(), ale_mid_centred.max()
+
+plt.vlines(middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], edges[where_[0]], edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+# Step 6
+lc_ale_mid = mpl.collections.LineCollection(
+    accum_mid_centred_per_bin_ls, colors='black', linewidths=2, linestyle='dotted')
+ax[0].add_collection(lc_ale_mid)
+
+plt.plot(middles, ale_mid_centred, c=line_colour)
+# plt.fill_between(
+#     middles,
+#     (ale_mid_centred - ale_std),
+#     (ale_mid_centred + ale_std),
+#     color=line_colour,
+#     alpha=.33,
+#     zorder=7)
+
+plt.hlines(0, edges[0], edges[-1], color='black', lw=.5, alpha=.5, zorder=1)
+
+plt.ylabel(f'{target_names[class_id]} probability change')
+ax[0].yaxis.set_major_formatter(lambda f, pos:
+    f'{ale_mid_mean:1.2f}' if f == 0 else
+    f'{ale_mid_mean:1.2f} {"+" if f > 0 else "-"} {abs(f):1.1f}')
+# ax.set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+plt.title(f'ALE mean-centred and bin-centred accumulated mean prediction difference for the Iris data set')
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+#plt.yticks([])
+
+plt.bar(middles, ale_count, 0.25, alpha=.75)
+#plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+#plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.show()
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Theoretical Underpinning
+
+## Formulation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+$$
+X_{\mathit{ALE}} \subseteq \mathcal{X}
+$$
+
+$$
+V_i = \{ x_i : x \in X_{\mathit{ALE}} \}
+$$
+
+$$
+\mathit{ALE}_i =
+\int_{v_{0}}^{x_i}
+\mathbb{E}_{X_{\setminus i} | X_{i}=x_i} \left[ f^i \left( X_{\setminus i} , X_{i} \right) | X_{i}=v_i \right]
+\; d v_i
+- \mathit{const}
+\\
+\;\;\;\;\;\;\;\;\;\;\;\;\;\;\;\;=
+\int_{v_{0}}^{x_i} \left (
+\int_{X_{\setminus i}} f^i \left( X_{\setminus i} , v_i \right) \; d \mathbb{P} ( X_{\setminus i} | X_i = v_i )
+\right )
+\; d v_i
+- \mathit{const}
+$$
+
+<br>
+
+$$
+f^i (x_{\setminus i}, x_i) = \frac{\partial f (x_{\setminus i}, x_i)}{\partial x_i}
+$$
+
+::: {.notes}
+- There are 2 differences between this formulation and ME formulation
+
+    * $f$ is replaced with $f^i$ to reflect that we are
+      interested in the (**average** [expected]) **change of prediction**
+      when $x_i$ changes
+    * the outer integral $\int_{v_{0}}^{x_i}$ captures the
+      **accumulation over values** $v_0, \ldots x_i$ -- from minimum up to
+      the value for that feature of the explained instace --
+      for the feature $x_i$
+      (in computation these become discrete intervals)
+
+- The outer integral and the partial derivative in conjunction ensure that
+  we isolate the effect of the explained feature from other features
+- By subtracting a constant ($\mathit{const}$) we centre ALE such that
+  the average effect is 0
+
+- **Conditioning** the difference in predictions on the distribution of
+  the **explained** feature(s) yields (**average**) effect of the explained
+  feature(s) (*and this feature alone*) on predictions
+:::
+
+## Formulation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}} {{< meta subs.ctd >}}
+
+<br>
+
+Based on the ICE notation [@goldstein2015peeking]
+
+<br>
+
+$$
+\hat{f}_S =
+\int_{z_{0, S}}^{x_S}
+\mathbb{E}_{X_{C} | X_S = x_S} \left[ \hat{f}^{S} \left( X_{S} , X_{C} \right) | X_S = z_S \right] \; d z_{S} - \mathit{const} \\
+\;\;\;\;\;\;\;\;=
+\int_{z_{0, S}}^{x_S} \left (
+\int_{X_C} \hat{f}^{S} \left( z_{S} , X_{C} \right) \; d \mathbb{P} ( X_{C} | X_S = z_S )
+\right )
+\; d z_{S} - \mathit{const}
+$$
+
+<br>
+
+$$
+\hat{f}^{S} (x_s, x_c) = \frac{\partial \hat{f} (x_S, x_C)}{\partial x_S}
+$$
+
+::: {.notes}
+- There are 2 differences between this formulation and ME formulation
+
+    * $\hat{f}$ is replaced with $\hat{f}^{S}$ to reflect that we are
+      interested in the (**average** [expected]) **change of prediction**
+      when $x_S$ changes
+    * the outer integral $\int_{z_{0, S}}^{x_S}$ captures the
+      **accumulation over values** $z_0, \ldots x_S$ -- from minimum up to
+      the value for that feature of the explained instace --
+      for the feature $X_S$
+      (in computation these become discrete intervals)
+
+- The outer integral and the partial derivative in conjunction ensure that
+  we isolate the effect of the explained feature from other features
+- By subtracting a constant ($\mathit{const}$) we centre ALE such that
+  the average effect is 0
+
+- $x_S$ is **fixed** -- the explained feature
+- $x_C$ are the **given** feature values
+- $X_C$ and $X_S$ are the **random variables**
+
+- **Conditioning** the difference in predictions on the distribution of
+  the **explained** feature(s) yields (**average**) effect of the explained
+  feature(s) (*and this feature alone*) on predictions
+:::
+
+## Approximation &nbsp;&nbsp;&nbsp;{{< fa desktop >}}
+
+<br>
+
+$$
+\mathit{ALE}_i^{j} \approx
+\sum_{n=1}^{j}
+\frac{1}{|Z_n|}
+\sum_{x \in Z_n}
+\left[
+f \left( x_{\setminus i} , x_i=Z_n^+ \right) -
+f \left( x_{\setminus i} , x_i=Z_n^- \right)
+\right]
+$$
+
+<br>
+
+$$
+\overline{\mathit{ALE}_i^{j}} =
+\mathit{ALE}_i^{j} -
+\frac{1}{\sum_{Z_n \in Z} |Z_n|}
+\sum_{x \in Z}
+\mathit{ALE}_i(x)
+$$
+
+::: {.notes}
+- The top one is *uncentred*; the bottom one is *centred*
+  (no $j$ superscript in $\mathit{ALE}_i$ means that we go to the interval
+  where the instance $x$ is located)
+
+- $\mathit{ALE}_i^j$ -- ALE of feature $i$ for interval $j$
+- $Z_n$ is the $n$-th interval;
+  $Z_n^-$ is the lower bound of the $n$-th interval; and
+  $Z_n^+$ is the upper bound of the $n$-th interval
+
+- Since we may not have access to gradient ([partial] derivative)
+  of the predictive function,
+  we use difference over intervals (approximation)
+
+- **effect** is the difference in prediction in a given *interval*,
+  which makes it **local**;
+  we **accumulate** this effect up to inteval $j$
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Variants
+
+## Feature Binning Approaches
+
+<br>
+
+> Given the need for binning, various approaches such as:
+>
+> - quantile,
+> - equal-width or
+> - custom.
+>
+> can be used.
+>
+> (Examples to follow.)
+
+## Multi-dimensional ALE
+
+<br>
+
+> ALE of a *single feature* captures **only** the effect of this particular
+> feature on the explained model's predictive behaviour --
+> known as **first-order effect**.
+> ALE of *multiple features* capture the **exclusive** effect of the
+> **interaction** between *n* features on
+> the explained model's predictive behaviour
+> (adjusted for the overall effect as well as the main effect of each feature)
+> -- known as **n<sup>th</sup>-order effect**, e.g., *second-order effect*.
+> 
+> (Examples to follow.)
+
+<br>
+
+::: {.callout-note}
+## Formulation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+Refer to @apley2020visualizing for the formulation.
+:::
+
+## Multi-dimensional ALE {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Multi-dimensional ALE computation
+#| fig-width: 55%
+
+_min, _max = 0, 1
+vlines_ = [0, .2, 0.4, 0.6, .8, 1]
+hlines_ = [0, 0.333333, 0.666667, 1]
+
+fig, ax = plt.subplots(figsize=(12, 4))
+fig.patch.set_alpha(0)
+
+plt.vlines(vlines_, _min, _max,
+        alpha=.75, zorder=9,
+        lw=.5, ls='-', color=third_colour)
+for i in range(0, len(vlines_) - 1):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], vlines_[where_[0]], vlines_[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+plt.hlines(hlines_, _min, _max,
+        alpha=.75, zorder=2,
+        lw=.5, ls='-', color=other_colour)
+for i in range(0, len(hlines_) - 1):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_between([_min, _max], hlines_[where_[0]], hlines_[where_[1]],
+                        alpha=alpha, zorder=10, color=other_colour)
+
+props = dict(boxstyle='round', facecolor='wheat', alpha=0.75, zorder=14)
+ax.text(vlines_[1], hlines_[1], 'a', transform=ax.transAxes, fontsize=14,
+        bbox=props, zorder=15, c='k',
+        horizontalalignment='left', verticalalignment='top')
+ax.text(vlines_[2], hlines_[1], 'b', transform=ax.transAxes, fontsize=14,
+        bbox=props, zorder=15, c='k',
+        horizontalalignment='left', verticalalignment='top')
+#
+ax.text(vlines_[1], hlines_[2], 'm', transform=ax.transAxes, fontsize=14,
+        bbox=props, zorder=15, c='k',
+        horizontalalignment='left', verticalalignment='bottom')
+ax.text(vlines_[2], hlines_[2], 'n', transform=ax.transAxes, fontsize=14,
+        bbox=props, zorder=15, c='k',
+        horizontalalignment='left', verticalalignment='bottom')
+
+plt.xlabel('feature #1')
+plt.ylabel('feature #2')
+
+plt.xticks([])
+plt.yticks([])
+
+plt.title(f'Second-order ALE calculation')
+
+plt.show()
+```
+
+::: {.callout-note}
+## Computation &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+$$
+\underbrace{
+\overbrace{(n - m)}^{\text{feature #1}}
+-
+\overbrace{(b - a)}^{\text{feature #1}}
+}_{\text{feature #2}}
+$$
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+## ALE
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate ALE
+class_id = 0
+feature_id = 2
+bins = 10
+
+ale_edges, ale_scores, ale_stds, ale_counts, _ = compute_ale(
+    X_num, clf_num.predict_proba, feature_id, class_id,
+    bins=bins, quantiles=True)
+ale_middles = (ale_edges + (np.roll(ale_edges, shift=-1) - ale_edges) / 2)[:-1]
+_min, _max = ale_scores.min() - 0.1, ale_scores.max() + 0.1
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE
+#| fig-width: 55%
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# ALE
+plt.sca(ax[0])
+
+plt.title(f'ALE for the Iris data set')
+
+plt.plot(ale_middles, ale_scores, zorder=10)
+
+plt.vlines(ale_middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(ale_edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], ale_edges[where_[0]], ale_edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+plt.ylabel(f'{feature_names[feature_id]} effect on\n{target_names[class_id]} probability')
+plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{f:1.1f}')
+# plt.gca().set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+#plt.yticks([])
+
+plt.bar(ale_middles, ale_counts, 0.075, alpha=.75)
+#plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+#plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.show()
+```
+
+## ALE with Standard Deviation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE with Standard Deviation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# ALE
+plt.sca(ax[0])
+
+plt.title(f'ALE for the Iris data set')
+
+plt.plot(ale_middles, ale_scores, zorder=10)
+plt.fill_between(
+    ale_middles,
+    (ale_scores - ale_stds),
+    (ale_scores + ale_stds),
+    color=line_colour,
+    alpha=.33,
+    zorder=7)
+
+plt.vlines(ale_middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(ale_edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], ale_edges[where_[0]], ale_edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+plt.ylabel(f'{feature_names[feature_id]} effect on\n{target_names[class_id]} probability')
+plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{f:1.1f}')
+# plt.gca().set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+#plt.yticks([])
+
+plt.bar(ale_middles, ale_counts, 0.075, alpha=.75)
+#plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+#plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.show()
+```
+
+## Uniform Binning ALE (with Standard Deviation)
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate ALE
+class_id = 0
+feature_id = 2
+bins = 10
+
+ale_edges, ale_scores, ale_stds, ale_counts, _ = compute_ale(
+    X_num, clf_num.predict_proba, feature_id, class_id,
+    bins=bins, quantiles=False)
+ale_middles = (ale_edges + (np.roll(ale_edges, shift=-1) - ale_edges) / 2)[:-1]
+_min, _max = ale_scores.min() - 0.1, ale_scores.max() + 0.1
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE with Standard Deviation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(2, 1, figsize=(8, 4.5), height_ratios=[4, .5], sharex=True)
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=0, hspace=.05)
+
+# ALE
+plt.sca(ax[0])
+
+plt.title(f'ALE for the Iris data set')
+
+plt.plot(ale_middles, ale_scores, zorder=10)
+plt.fill_between(
+    ale_middles,
+    (ale_scores - ale_stds),
+    (ale_scores + ale_stds),
+    color=line_colour,
+    alpha=.33,
+    zorder=7)
+
+plt.vlines(ale_middles, _min, _max,
+           alpha=.75, zorder=9,
+           lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+plt.vlines(ale_edges, _min, _max,
+           alpha=.75, zorder=1,
+           lw=.5, ls='-', color=third_colour)
+for i in range(0, bins):
+    where_ = [i, i + 1]
+    alpha = 0.2 if i%2 else 0.4
+    plt.fill_betweenx([_min, _max], ale_edges[where_[0]], ale_edges[where_[1]],
+                        alpha=alpha, zorder=1, color=third_colour)
+
+plt.ylabel(f'{feature_names[feature_id]} effect on\n{target_names[class_id]} probability')
+plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{f:1.1f}')
+# plt.gca().set_yticklabels([f'{100*item:2.0f}%' for item in ax.get_yticks()])
+
+# rug plot
+plt.sca(ax[1])
+
+plt.xlabel(f'{feature_names[feature_id]} value')
+#plt.yticks([])
+
+plt.bar(ale_middles, ale_counts, 0.075, alpha=.75)
+#plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+#plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.show()
+```
+
+## ALE for Two Features
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [0, 1]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Case Studies & Gotchas!
+
+```{python}
+#| echo: false
+#| output: false
+
+clf_num_linear = sklearn.svm.SVC(probability=True, kernel='linear')
+clf_num_linear.fit(X_num, y_num)
+```
+
+## Feature Correlation
+
+```{python}
+#| echo: false
+#| output: false
+
+# Generate ALE
+class_id = 0
+features_id = [0, 1, 2, 3]
+bins = 10
+
+ale_tuples = []
+for i in features_id:
+    ale_edges, ale_scores, ale_stds, ale_counts, ale_avg = compute_ale(
+        X_num, clf_num_linear.predict_proba, i, class_id,
+        bins=bins, quantiles=True)
+    ale_middles = (ale_edges + (np.roll(ale_edges, shift=-1) - ale_edges) / 2)[:-1]
+    _min, _max = ale_scores.min() - 0.1, ale_scores.max() + 0.1
+
+    ale_tuples.append((
+        ale_edges, ale_scores, ale_stds, ale_counts, ale_avg,
+        ale_middles, _min, _max))
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE of a single class for two correlated features
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.075, hspace=.1)
+fig.suptitle('ALE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.92)
+
+for tuple_id, ale_tuple in enumerate(ale_tuples[:2]):
+    ale_edges, ale_scores, ale_stds, ale_counts, ale_avg, ale_middles, _min, _max = ale_tuple
+
+    # ALE
+    plt.sca(ax[0][tuple_id])
+
+    plt.plot(ale_middles, ale_scores, zorder=10)
+    plt.fill_between(
+        ale_middles,
+        (ale_scores - ale_stds),
+        (ale_scores + ale_stds),
+        color=line_colour,
+        alpha=.33,
+        zorder=7)
+
+    plt.vlines(ale_middles, _min, _max,
+            alpha=.75, zorder=9,
+            lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+    plt.vlines(ale_edges, _min, _max,
+            alpha=.75, zorder=1,
+            lw=.5, ls='-', color=third_colour)
+    for i in range(0, bins):
+        where_ = [i, i + 1]
+        alpha = 0.2 if i%2 else 0.4
+        plt.fill_betweenx([_min, _max], ale_edges[where_[0]], ale_edges[where_[1]],
+                            alpha=alpha, zorder=1, color=third_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{f:1.2f}')
+
+    # rug plot
+    plt.sca(ax[1][tuple_id])
+
+    plt.xlabel(f'{feature_names[features_id[tuple_id]]} value\n(ALE average effect {ale_avg:1.2f})')
+    #plt.yticks([])
+
+    width_ = 0.5*(ale_middles.max()-ale_middles.min())/25
+    plt.bar(ale_middles, ale_counts, width_, alpha=.75)
+    #plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    #plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+plt.show()
+```
+
+::: {.notes}
+- If a feature has not effect on the prediction
+  (in a given section of a feature),
+  it shows in ALE as a straight line
+- ALE is centred around 0 if it has no effect on the feature
+  throughout the entire range
+- Since the underlying model is linear,
+  features are assumed to be independent and
+  have linear effect on the prediction
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ALE of a single class for two correlated features
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.075, hspace=.1)
+fig.suptitle('ALE for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class' )
+fig.subplots_adjust(top=.92)
+
+for tuple_id, ale_tuple in enumerate(ale_tuples[2:]):
+    ale_edges, ale_scores, ale_stds, ale_counts, ale_avg, ale_middles, _min, _max = ale_tuple
+
+    # ALE
+    plt.sca(ax[0][tuple_id])
+
+    plt.plot(ale_middles, ale_scores, zorder=10)
+    plt.fill_between(
+        ale_middles,
+        (ale_scores - ale_stds),
+        (ale_scores + ale_stds),
+        color=line_colour,
+        alpha=.33,
+        zorder=7)
+
+    plt.vlines(ale_middles, _min, _max,
+            alpha=.75, zorder=9,
+            lw=1.0, ls=(0, (1, 1)), color=other_colour)
+
+    plt.vlines(ale_edges, _min, _max,
+            alpha=.75, zorder=1,
+            lw=.5, ls='-', color=third_colour)
+    for i in range(0, bins):
+        where_ = [i, i + 1]
+        alpha = 0.2 if i%2 else 0.4
+        plt.fill_betweenx([_min, _max], ale_edges[where_[0]], ale_edges[where_[1]],
+                            alpha=alpha, zorder=1, color=third_colour)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{f:1.2f}')
+
+    # rug plot
+    plt.sca(ax[1][tuple_id])
+
+    plt.xlabel(f'{feature_names[features_id[tuple_id+2]]} value\n(ALE average effect {ale_avg:1.2f})')
+    #plt.yticks([])
+
+    width_ = 0.5*(ale_middles.max()-ale_middles.min())/25
+    plt.bar(ale_middles, ale_counts, width_, alpha=.75)
+    #plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    #plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+plt.show()
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PD of a single class for two correlated features
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.05, hspace=.1)
+fig.suptitle('PD for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class')
+fig.subplots_adjust(top=.92)
+
+for feature_id_cut, feature_id_full in enumerate(features_id[:2]):
+
+    ice_pd_num_s = sklearn.inspection.partial_dependence(
+        clf_num_linear, X_num, features=[feature_id_full],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+    vce_pd_num_s_std = np.std(
+        ice_pd_num_s['individual'][class_id], axis=0)
+
+    # PD
+    plt.sca(ax[0][feature_id_cut])
+
+    plt.plot(
+        ice_pd_num_s['values'][0],
+        ice_pd_num_s['average'][class_id],
+        lw=2, zorder=10, c=line_colour)
+    plt.plot(
+        ice_pd_num_s['values'][0],
+        ice_pd_num_s['individual'][class_id].T,
+        alpha=.05, c=other_colour, zorder=0)
+    plt.fill_between(
+        ice_pd_num_s['values'][0],
+        (ice_pd_num_s['average'][class_id] - vce_pd_num_s_std),
+        (ice_pd_num_s['average'][class_id] + vce_pd_num_s_std),
+        color=line_colour,
+        alpha=.25, zorder=5)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+    plt.ylim((-0.1723, 1.0437))
+
+    # rug plot
+    plt.sca(ax[1][feature_id_cut])
+
+    plt.xlabel(f'{feature_names[feature_id_full]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id_full])
+    rug_x = np.linspace(
+        X_num[:, feature_id_full].min(),
+        X_num[:, feature_id_full].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id_full], [0]*len(X_num[:, feature_id_full]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[0][1].sharex(ax[1][1])
+
+ax[0][0].sharey(ax[0][1])
+
+plt.show()
+```
+
+::: {.notes}
+- This agrees with the insights communicated by ALE --
+  despite diverse predictions, indiviudal response is quite stable
+
+- **Note:** By design, PD reports the total
+  (all, up to the n<sup>th</sup>-order effects),
+  but ALE separates effects of a given order
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: PD of a single class for two correlated features
+#| fig-width: 55%
+
+fig, ax = plt.subplots(
+    2, 2, figsize=(16, 4.5), height_ratios=[4, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.05, hspace=.1)
+fig.suptitle('PD for all instances of the Iris data set for the '
+             f'(probability of) {target_names[class_id]} class')
+fig.subplots_adjust(top=.92)
+
+for feature_id_cut, feature_id_full in enumerate(features_id[2:]):
+
+    ice_pd_num_s = sklearn.inspection.partial_dependence(
+        clf_num_linear, X_num, features=[feature_id_full],
+        percentiles=(0, 1), grid_resolution=500,
+        response_method='predict_proba', kind='both')
+    vce_pd_num_s_std = np.std(
+        ice_pd_num_s['individual'][class_id], axis=0)
+
+    # PD
+    plt.sca(ax[0][feature_id_cut])
+
+    plt.plot(
+        ice_pd_num_s['values'][0],
+        ice_pd_num_s['average'][class_id],
+        lw=2, zorder=10, c=line_colour)
+    plt.plot(
+        ice_pd_num_s['values'][0],
+        ice_pd_num_s['individual'][class_id].T,
+        alpha=.05, c=other_colour, zorder=0)
+    plt.fill_between(
+        ice_pd_num_s['values'][0],
+        (ice_pd_num_s['average'][class_id] - vce_pd_num_s_std),
+        (ice_pd_num_s['average'][class_id] + vce_pd_num_s_std),
+        color=line_colour,
+        alpha=.25, zorder=5)
+
+    plt.gca().yaxis.set_major_formatter(lambda f, pos: f'{100*f:2.0f}%')
+    plt.ylim((-0.1723, 1.0437))
+
+    # rug plot
+    plt.sca(ax[1][feature_id_cut])
+
+    plt.xlabel(f'{feature_names[feature_id_full]} value')
+    plt.yticks([])
+
+    kde1 = scipy.stats.gaussian_kde(X_num[:, feature_id_full])
+    rug_x = np.linspace(
+        X_num[:, feature_id_full].min(),
+        X_num[:, feature_id_full].max(),
+        num=200)
+    plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+    plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+    plt.scatter(
+        X_num[:, feature_id_full], [0]*len(X_num[:, feature_id_full]),
+        c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+ax[0][0].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+ax[0][1].tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+
+ax[0][1].tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+ax[0][0].sharex(ax[1][0])
+ax[0][1].sharex(ax[1][1])
+
+ax[0][0].sharey(ax[0][1])
+
+plt.show()
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Model coefficients for the selected class
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+r = list(range(clf_num_linear.coef_.shape[1]))[::-1]
+plt.barh(r, clf_num_linear.coef_[class_id, :])
+plt.gca().set_yticks(r, labels=feature_names)
+plt.title(f'Coefficients of a linear SVM for the {target_names[class_id]} class')
+
+plt.show()
+```
+
+::: {.callout-note}
+## ALE and Linear Model Coefficients
+
+See @gromping2020model for an explanation why ALE may not reflect
+the coefficients of a linear model.
+:::
+
+::: {.notes}
+- But based on the model coefficients,
+  we can see that other features contribute to the prediction
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature correlation
+#| fig-width: 55%
+
+X_num_corr = np.flipud(np.corrcoef(X_num, rowvar=False))
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(X_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks(np.arange(len(feature_names)), labels=feature_names[::-1])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for i in range(len(feature_names)):
+    for j in range(len(feature_names)):
+        text = ax.text(j, i, f'{X_num_corr[i, j]:1.2f}',
+                       ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+::: {.notes}
+- These somewhat counterintuitive explanations are caused by
+  strong feature correlation
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [0, 1]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num_linear.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+::: {.notes}
+- **Recall:** Second-order effect communicates the **additional effect**
+  due to interaction between *two* features on the predictions
+  of the explained model,
+  **after accoutning for the main effect of both features**
+- Most of **second-order effects are close to 0**
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [0, 2]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num_linear.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [0, 3]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num_linear.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [1, 2]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num_linear.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+::: {.notes}
+- The **negative** effect of this second-order ALE is non-negligible
+  (albeit in a small region of the feature grid)
+- While the undelrying model is linear and presupposes no feature interaction,
+  the feature correlation cannot be ignored
+- While *petal length (cm)* is the main predictive feature,
+  **its interaction with** *sepal width (cm)* in a small region helps to
+  predict the classes
+
+- *petal length (cm)* -- y-axis -- is **influential in first-order ALE** and
+  strongly correlated (mostly positive) with
+
+    * *sepal length (cm)* (+0.87)
+    * *petal width (cm)* (+0.96)
+    * *sepal width (cm)* (-0.43)
+
+- *sepal width (cm)* -- x-axis -- is weakly correlated (negative) with
+
+    * *sepal length (cm)* (-0.12)
+    * *petal width (cm)* (-0.43)
+    * *sepal length (cm)* (-0.37)
+:::
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional PD for the Iris data set
+#| fig-width: 55%
+
+features_2d = [1, 2]
+class_id = 0
+
+ice_pd_2d = sklearn.inspection.partial_dependence(
+    clf_num_linear, X_num, features=features_2d,
+    feature_names=feature_names,
+    percentiles=(0, 1), grid_resolution=500,
+    response_method='predict_proba', kind='average')
+
+plt.style.use('seaborn')
+update_colours()
+
+fig, ax = plt.subplots(  # 12 x 6
+    2, 3, figsize=(12.25, 6.75), height_ratios=[6, .75], width_ratios=[.75, 11, .5])
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.0, hspace=.0)
+
+plt.sca(ax[0, 1])
+plt.gca().grid(False)
+im = plt.gca().imshow(np.flipud(ice_pd_2d['average'][class_id].T),
+               alpha=0.5, cmap='cool', aspect='auto')
+
+plt.gca().tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+plt.gca().tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+
+plt.title('Two-dimensional PD for the Iris data set')
+
+plt.colorbar(
+    im, cax=ax[0, 2],
+    label=f'{target_names[class_id]} probability', orientation='vertical')
+
+# Rug plot X
+plt.sca(ax[1, 1])
+
+kde1 = scipy.stats.gaussian_kde(X_num[:, features_2d[0]])
+rug_x = np.linspace(
+    X_num[:, features_2d[0]].min(),
+    X_num[:, features_2d[0]].max(),
+    num=200)
+plt.plot(rug_x, kde1(rug_x), '-', alpha=.25)
+plt.fill_between(rug_x, kde1(rug_x), alpha=.25, zorder=5)
+
+plt.scatter(
+    X_num[:, features_2d[0]], [0]*len(X_num[:, features_2d[0]]),
+    c='k', marker='|', s=100, alpha=.33, zorder=10)
+
+#plt.gca().set_xticks(
+#    np.arange(ice_pd_2d['values'][0].shape[0], step=3),
+#    labels=[f'{v:1.1f}' for i, v in enumerate(ice_pd_2d['values'][0]) if not i%3])
+plt.xlim([ice_pd_2d['values'][0].min(), ice_pd_2d['values'][0].max()])
+plt.xlabel(f'{feature_names[features_2d[0]]} value')
+
+plt.gca().tick_params(
+    axis='y', which='both', left=False, right=False, labelleft=False)
+plt.gca().invert_yaxis()
+
+# Rug plot Y
+plt.sca(ax[0, 0])
+
+kde2 = scipy.stats.gaussian_kde(X_num[:, features_2d[1]])
+rug_y = np.linspace(
+    X_num[:, features_2d[1]].min(),
+    X_num[:, features_2d[1]].max(),
+    num=200)
+plt.plot(kde2(rug_y), rug_y, '-', alpha=.25)
+plt.fill_betweenx(rug_y, kde2(rug_y), alpha=.25, zorder=5)
+
+plt.scatter(
+    [0]*len(X_num[:, features_2d[1]]), X_num[:, features_2d[1]],
+    c='k', marker='_', s=100, alpha=.33, zorder=10)
+
+#plt.gca().set_yticks(
+#    np.arange(ice_pd_2d['values'][1].shape[0], step=3),
+#    labels=[f'{v:1.1f}' for i, v in enumerate(ice_pd_2d['values'][1]) if not i%3][::-1])
+plt.ylim([ice_pd_2d['values'][1].min(), ice_pd_2d['values'][1].max()])
+plt.ylabel(f'{feature_names[features_2d[1]]} value')
+
+plt.gca().tick_params(
+    axis='x', which='both', top=False, bottom=False, labelbottom=False)
+plt.gca().invert_xaxis()
+
+fig.delaxes(ax[1, 0])
+fig.delaxes(ax[1, 2])
+fig.tight_layout()
+
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [1, 3]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num_linear.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+## Feature Correlation {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Two-dimensional ALE for the Iris data set
+#| fig-width: 55%
+
+# Generate ALE
+class_id = 0
+features_id = [2, 3]
+
+ax = ale_plot(
+    None,
+    pd.DataFrame(X_num, columns=feature_names),
+    [feature_names[i] for i in features_id],
+    predictor=lambda x: clf_num_linear.predict_proba(x)[:, class_id],
+    bins=10)
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Properties
+
+## Pros &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+- **Easy and fast to generate**
+- **Reasonably easy to interpret** (first-order ALE)
+
+- Reliable when features are correlated (**unbiased**)
+- Based on data that are **closely distributed to the real data**
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+- **Not so easy to implement**
+- **Tricky to interpret for orders higher than first**
+- Limited to explaining **two feature at a time**
+
+- ALE trends **should not be generalised to individual instances**
+  across the feature range since the estimates are specific to each bin
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}} {{< meta subs.ctd >}}
+
+- **Binning may skew the results**
+  (aided by displaying distribution of instances per bin); e.g.,
+
+    * *quantiles* ensure good estimates given the number of instances per bin,
+      but may yield unusually long and short bins;
+    * *fixed-width* offers regular bins, but some may lack
+      a sufficient number of points to offer reliable estimates
+
+## Caveats &nbsp;&nbsp;&nbsp;{{< fa skull >}}
+
+- The measurements may be sensitive to different binning approaches
+- Computational complexity: $\mathcal{O} \left( n \right)$, where
+  $n$ is the number of instances in the designated data set
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Further Considerations
+
+## Related Techniques
+
+<br>
+
+### Marginal Effect (ME)
+
+> [{{< fa person-chalkboard >}}](me.html) &nbsp;&nbsp;&nbsp;
+> ME captures the **average response of a predictive model** across
+> a **collection of instances** (taken from a designated data set)
+> for a **specific value of a selected feature**
+> (found in the aforementioned data set) [@apley2020visualizing].
+> When **relaxed** by including **similar feature values**
+> determined by a fixed interval around the selected value,
+> this method offers similar insights to ALE:
+> average prediction per interval instead of (accumulated)
+> difference in prediction per interval.
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### Individual Conditional Expectation (ICE)
+
+> [{{< fa person-chalkboard >}}](ice.html) &nbsp;&nbsp;&nbsp;
+> It communicates the influence of a specific feature value on
+> the model's prediction by **fixing the value of this feature**
+> across a designated range for a selected data point [@goldstein2015peeking].
+> It is an instance-focused (local) "variant" of *Partial Dependence*.
+
+## Related Techniques {{< meta subs.ctd >}}
+
+<br>
+
+### Partial Dependence (PD)
+
+> [{{< fa person-chalkboard >}}](pd.html) &nbsp;&nbsp;&nbsp;
+> It communicates the average influence of a specific feature value on
+> the model's prediction by **fixing the value of this feature** across a
+> designated range for a set of instances.
+> It is a model-focused (global) "variant" of
+> *Individual Conditional Expectation*, which is calculated by **averaging**
+> ICE across a collection of data points [@friedman2001greedy].
+
+## Implementations
+
+| {{< fa brands python >}} Python          | {{< fa brands r-project >}} R     |
+|:-----------------------------------------|:----------------------------------|
+| [ALEPython][alepython]                   | [ALEPlot][aleplot]                |
+| [alibi]                                  | [DALEX]                           |
+|                                          | [iml]                             |
+
+: {tbl-colwidths="[50,50]"}
+
+
+## Further Reading
+
+- [ALE paper][paper] [@apley2020visualizing]
+- [*Interpretable Machine Learning* book][iml-book]
+- [*Explanatory Model Analysis* book][ema-book]
+
+## Bibliography
+
+::: {#refs}
+:::
+
+---
+
+[alepython]: https://github.com/blent-ai/ALEPython
+[alibi]: https://github.com/SeldonIO/alibi
+
+[aleplot]: https://cran.r-project.org/package=ALEPlot
+[DALEX]: https://github.com/ModelOriented/DALEX
+[iml]: https://github.com/christophM/iml/
+
+[paper]: https://doi.org/10.1111/rssb.12377
+[iml-book]: https://christophm.github.io/interpretable-ml-book/ale.html
+[ema-book]: https://ema.drwhy.ai/accumulatedLocalProfiles.html#accumulated-local-profile

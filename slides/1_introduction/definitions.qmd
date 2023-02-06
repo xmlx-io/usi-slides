@@ -1,0 +1,615 @@
+---
+title: "Defining Explainability"
+---
+
+```{python}
+#| echo: false
+
+import sklearn.datasets
+import sklearn.tree
+import wordcloud
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+plt.style.use('seaborn')
+```
+
+# Nomenclature
+
+## Black Box
+
+> A system or automated process whose **internal workings are opaque**
+> to the observer -- its operation may only be traced by analysing its
+> behaviour through its inputs and outputs
+
+## Black Box {{< meta subs.ctd >}}
+
+Sources of opaqueness:
+
+1. a proprietary system, which may be **transparent to its creators**,
+   but operates as a black box
+2. a system that is **too complex** to be comprehend by **any human**
+
+::: aside
+[@rudin2019stop]
+:::
+
+## Black Box {{< meta subs.ctd >}}
+
+> Spectrum of opaqueness determined by the context (audience, purpose, etc.)
+
+![]({{< meta custom-paths.figures >}}/blackboxiness.svg){width=75% fig-alt="Shades of black-boxiness"}
+
+::: aside
+[@sokol2021explainability]
+:::
+
+::: {.notes}
+- Instead of binary yes/no opaque,
+  it seems more appropriate to have a continuous scale
+:::
+
+## Transparency, Interpretability, Explainability, ...
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: ML explainability terms
+#| fig-width: 55%
+
+xml_words = {
+    'explainability': 10,
+    'intelligibility': 1,
+    'simulatability': 1,
+    'sensemaking': 1,
+    'cause': 1,
+    'observability': 1,
+    'comprehensibility': 1,
+    'explicitness': 1,
+    'insight': 1,
+    'transparency': 10,
+    'understandability': 1,
+    'justification': 1,
+    'evidence': 1,
+    'explicability': 2,
+    'interpretability': 10,
+    'rationalisation': 1,
+    'reason': 1
+}
+xml_wc = wordcloud.WordCloud().fit_words(xml_words)
+
+plt.imshow(xml_wc, interpolation='bilinear')
+plt.axis("off")
+plt.show()
+```
+
+## Transparency, Interpretability, Explainability, ... {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="25%"}
+- explainability
+- intelligibility
+- simulatability
+- sensemaking
+- cause
+:::
+
+::: {.column width="25%"}
+- observability
+- comprehensibility
+- explicitness
+- insight
+:::
+
+::: {.column width="25%"}
+- transparency
+- understandability
+- justification
+- evidence
+:::
+
+::: {.column width="25%"}
+- explicability
+- interpretability
+- rationalisation
+- reason
+:::
+
+::::
+
+::: {.notes}
+- A lot of different terms are used interchangeably
+- They are (re)defined in a large number of papers
+
+- We will try to organise this catalogue of words
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# What Is Explainability?
+
+## Lack of a universally accepted definition
+
+> Interpretability is the degree to which a human can understand
+> the cause of a decision
+
+> Explanation is an answer to a "Why?" question
+
+::: aside
+[@miller2019explanation; @biran2017explanation]
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+> Explanations should answer "Why?" and "Why-should?" questions
+> until such questions can no longer be asked
+
+::: aside
+[@gilpin2018explaining]
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+> Explanations "giv[e] a reason for a prediction" and
+> answer "how a system arrives at its prediction"
+
+> Justifications "put an explanation in a context" and convey
+> "why we should believe that the prediction is correct"
+
+::: aside
+[@biran2014justification]
+:::
+
+::: {.notes}
+- justifications do not necessarily communicate how the system truly works
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+
+> Transparency is a *passive* characteristic of a model that allows humans
+> to make sense of it on different levels
+
+> Explainability is an *active* characteristic of a model that is achieved
+> through actions and procedures employed (by the model) to clarify its
+> functioning for a certain audience
+
+::: aside
+[@arrieta2020explainable]
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+> Interpretability is the degree to which a human can consistently predict
+> the model's result
+
+::: aside
+[@kim2016examples]
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+> Transparency is the ability of a human to comprehend the (ante-hoc)
+> mechanism employed by a predictive model on three levels
+
+::: aside
+[@lipton2018mythos]
+:::
+
+. . .
+
+> - **decomposability** -- appreciation of individual components
+>   (input, parameterisation and computation)
+>   that constitute a predictive system
+> - **algorithmic transparency** -- understanding the modelling process embodied by a predictive algorithm
+> - **simulatability** enables humans to simulate a decisive process in vivo at the level of the entire model
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+Marr's three-level hierarchy of understanding information processing devices
+
+1. **computational theory** -- abstract specification of the problem at hand and
+   the overall goal.
+2. **representation and algorithm** -- implementation details and selection of
+   an appropriate representation
+3. **hardware implementation** -- physical realisation of the explained problem
+
+::: aside
+[@marr1982vision]
+:::
+
+::: {.notes}
+- These three tiers are only loosely related
+- Some phenomena may be explained at only one or two of them
+- Identify which of these levels need to be covered in each individual case
+  to arrive at understanding
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+Understanding why birds fly cannot be achieved by only studying their feathers: 
+
+> In order to understand bird flight, we have to understand aerodynamics;
+> only then do the structure of feathers and the different shapes of
+> birds' wings make sense.
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+Fidelity-based understanding
+
+- **completeness** -- how truthful the understanding is overall (*generality*)
+- **soundness** -- how accurate the understanding is for
+  a particular phenomenon (*specificity*)
+
+::: aside
+[@kulesza2013too]
+:::
+
+::: {.notes}
+- Complete understanding can be applied to other domains
+- The depth of understanding, i.e., the level of (over)simplification
+
+- completeness without soundness is likely to be too broad, hence uninformative
+- the opposite can be too specific to the same effect
+:::
+
+## Lack of a universally accepted definition {{< meta subs.ctd >}}
+
+Mental models withing the completeness--soundness landscape
+
+- **functional** – operationalisation without understanding
+- **structural** – appreciation of the underlying mechanism
+
+::: aside
+[@kulesza2013too]
+:::
+
+::: {.notes}
+- Electricity and light bulb scenario
+:::
+
+## Approaches to defining XML concepts
+
+- no definition
+- inherently intuitive -- *You know it when you see it!*
+- assuming terms are synonymous
+
+## Approaches to defining XML concepts {{< meta subs.ctd >}}
+
+- circular or tautological definitions
+
+    * "something is explainable when we can interpret it"
+    * "interpretability is making sense of ML models"
+    * "interpretable systems are explainable
+      if their operations can be understood by humans"
+    * "intelligibility is the possibility to comprehended something"
+
+- dictionary definitions
+
+    * to interpret is "to explain [...] the meaning of"
+    * to explain is to "present in understandable terms"
+
+## Approaches to defining XML concepts {{< meta subs.ctd >}}
+
+- hierarchical and ontological definitions
+
+    * creating a web of connections
+
+- component-based -- pairings between
+  keywords and technical component or properties
+
+    * data are understandable; models are transparent;
+      predictions are explainable
+    * interpretability is determined by
+      fidelity, brevity and relevance of the insights
+
+::: {.notes}
+- hierarchies and ontologies are difficult to parse, follow and apply
+:::
+
+# Defining Explainability
+
+## Human-agnostic definitions
+
+- (technical) desiderata of explainers
+- (abstract) properties of explanations
+
+## Human-centred definitions
+
+- the role and needs of (human) explainees
+- the goal of explanations (with respect to explainees)
+
+. . .
+
+<br>
+<hr>
+<br>
+
+- The Chinese Room Theorem [@searle1980minds]
+
+::: {.notes}
+- problem with simulatability
+- replication-based definitions, more broadly
+:::
+
+## Terminology & Key Concepts
+
+- **Transparency** -- *insight* (of arbitrary complexity) into operation of
+  a system
+- **Background Knowledge** -- implicit or explicit *exogenous information*
+  encompassing (operational) *context* such as application area, stakeholder
+  and audience (domain expertise)
+- **Reasoning** -- *algorithmic* or *mental processing* of information
+
+## Definition
+
+$$
+\texttt{Explainability} \; =
+$$
+$$
+\underbrace{ \texttt{Reasoning} \left( \texttt{Transparency} \; | \; \texttt{Background Knowledge} \right)}_{\textit{understanding}}
+$$
+
+::: aside
+[@sokol2021explainability]
+:::
+
+::: {.notes}
+- Explainability is a socially-grounded technology
+- It provides insights that lead to understanding
+- Understanding largely depends upon the explanation recipients,
+  who come with a diverse range of background knowledge, experience,
+  mental models and expectations (context)
+- It is a process -- a loop
+:::
+
+## Goal
+
+<br>
+
+> Explainability &rarr; **explainee** walking away with **understanding**
+
+::: {.notes}
+- This notion both conceptualises explainability and
+  fixes its evaluation criterion (as we will see in the next module)
+- Note that it is not about **task completion** but **understanding**
+- Recall The Chinese Room Argument
+:::
+
+## Understanding, explainability & transparency
+
+<br>
+
+> A **continuous spectrum** rather than a binary property
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/blackboxiness.svg){width=75% fig-alt="Shades of black-boxiness"}
+
+::: {.notes}
+- **Explainability is not a binary property; it is a continuous spectrum**
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+::: {.notes}
+- transparency is different from explainability
+– both overcome opaqueness, but only the latter leads to understanding
+:::
+
+## Linear Models
+
+$$
+f(\mathbf{x}) = 0.2 \;\; + \;\; 0.25 \times x_1 \;\; + \;\; 0.7 \times x_4 \;\; - \;\; 0.2 \times x_5 \;\; - \;\; 0.9 \times x_7
+$$
+
+<br>
+
+$$
+\mathbf{x} = (0.4, \ldots, 1, \frac{1}{2}, \ldots \frac{1}{3})
+$$
+
+. . .
+
+<br>
+
+$$
+f(\mathbf{x}) = 0.2 \;\; \underbrace{+0.1}_{x_1} \;\; \underbrace{+0.7}_{x_4} \;\; \underbrace{-0.1}_{x_5} \;\; \underbrace{-0.3}_{x_7} \;\; = \;\; 0.6
+$$
+
+::: {.notes}
+- linear models are transparent given a reasonable number of features
+- with the right ML and domain background knowledge they become explainable
+
+    * normalised features
+    * effect of feature correlation
+    * meaning of features and coefficients
+
+– the explainee can reason about their properties,
+  leading to an explanation based on understanding
+- visualisation can help -- refer back to XXX
+:::
+
+## Linear Models {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+
+colour_positive = '#FF0D57'  # 255, 13, 87   # g
+colour_negative = '#1E88E5'  # 30, 136, 229  # r
+
+middle = .2
+names = ['$x_{}$'.format(i) for i in range(9)]
+values = [0, 0.1, 0, 0, 0.7, -0.1, 0, -0.3, 0]
+colours = [colour_negative if i < 0 else colour_positive
+           for i in values]
+prediction = sum(values) + middle
+
+################
+
+bar_explanation = plt.figure(figsize=(8, 6), dpi=100)
+bar_explanation.patch.set_alpha(0)
+
+# Filter
+names_ = [names[i] for i, v in enumerate(values) if v]
+values_ = [v for v in values if v]
+colours_ = [colours[i] for i, v in enumerate(values) if v]
+
+# Order
+_ordering = np.argsort(np.abs(values_))
+
+names_ = np.flip(np.asarray(names_)[_ordering]).tolist()
+values_ = np.flip(np.asarray(values_)[_ordering]).tolist()
+colours_ = np.flip(np.asarray(colours_)[_ordering]).tolist()
+
+# Plot
+plt.barh(names_[::-1],
+         values_[::-1],
+         color=colours_[::-1],
+         height=.9)
+
+for i, v in enumerate(values_[::-1]):
+    v_s = f'+{v:.1f}' if v > 0 else f'{v:.1f}'.replace('−', '-')
+    s = v + 0.02 if v > 0 else .02
+    c = colour_negative if v < 0 else colour_positive
+    plt.text(s, i - .06, v_s, color=c, fontweight='bold', fontsize=18)
+
+plt.tight_layout()
+left_, right_ = plt.xlim()
+plt.xlim((left_, 1.10*right_))
+
+plt.tick_params(axis='x', labelsize=18)
+plt.tick_params(axis='y', labelsize=18)
+
+ax = bar_explanation.axes[0]
+x_ticks = [item.get_text() for item in ax.get_xticklabels()]
+x_ticks_ = []
+for i in x_ticks:
+  if not i:
+    x_ticks_.append(i)
+    continue
+
+  i_float = float(i.replace('−', '-'))
+  if i_float < 0:
+    x_ticks_.append(i)
+  elif i_float == 0:
+    x_ticks_.append(middle)
+  else:
+    x_ticks_.append(f'+{i}')
+ax.set_xticklabels(x_ticks_)
+
+plt.text(.5, 0.1, f'$f(\mathbf{{x}})={prediction}$', color='k', fontsize=24)
+plt.show()
+
+# bar_explanation
+```
+
+## Linear Models {{< meta subs.ctd >}}
+
+![]({{< meta custom-paths.figures >}}/force-plot-x.svg){fig-alt="Force plot explanation" width=100% fig-align="center"}
+
+## Decision Trees
+
+```{python}
+#| echo: false
+#| output: false
+
+iris = sklearn.datasets.load_iris()
+X, y = iris.data, iris.target
+
+clf_shallow = sklearn.tree.DecisionTreeClassifier(max_leaf_nodes=3, random_state=42)
+clf_shallow.fit(X, y)
+
+clf_deep = sklearn.tree.DecisionTreeClassifier(random_state=42)
+clf_deep.fit(X, y)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+
+fig = sklearn.tree.plot_tree(
+    clf_shallow,
+    feature_names=iris.feature_names,
+    class_names=iris.target_names,
+    filled=True, impurity=False, rounded=True)
+fig = fig[0].get_figure()
+fig.patch.set_alpha(0)
+plt.show()
+```
+
+::: {.notes}
+- visualisation of a shallow decision tree can be considered both transparent,
+  and arguably explainable assuming that the explainee understands how to
+  navigate its structure (ML background knowledge) and
+  the features are meaningful (domain background knowledge);
+- people were shown to believe that the feature used by the root-node split is
+  the most important attribute [@bell2022s]
+- it is up to the explainee to reason about these insights
+:::
+
+## Decision Trees {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+
+fig = sklearn.tree.plot_tree(
+    clf_deep,
+    feature_names=iris.feature_names,
+    class_names=iris.target_names,
+    filled=True, impurity=False, rounded=True)
+fig = fig[0].get_figure()
+fig.patch.set_alpha(0)
+plt.show()
+```
+
+::: {.notes}
+- when the size of a tree increases, its visualisation loses
+  the explanatory power because many explainees become unable to process and
+  reason about its structure
+  
+- restoring the explainability of a deep tree requires delegating
+  the reasoning process to an algorithm that can digest its structure and
+  output sought after insights in a concise representation
+- for explaining a prediction, the tree structure can be traversed
+  to identify a similar instance with a different prediction, e.g.,
+  as encoded by two neighbouring leaves with a shared parent
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Summary
+
+- Explainability is an elusive concept
+- Its definition relies on the broadly-understood context
+- It should be human-centred and goal-driven
+- It should lead to understanding
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

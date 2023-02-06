@@ -1,0 +1,50 @@
+name: 🔧 Build 📺 slides and 🧮 demos, and 🚀 deploy them to GitHub Pages
+on: push
+jobs:
+  build-n-deploy:
+    name: Build and deploy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code 🛎️
+      uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    - name: Set up Python 3.9 🐍
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+        cache: 'pip'
+    - name: Install Quarto 💾
+      run: |
+        wget -O quarto.deb https://github.com/quarto-dev/quarto-cli/releases/download/v1.2.313/quarto-1.2.313-linux-amd64.deb
+        QUARTO_INSTALLER=$(readlink -f quarto.deb)
+        sudo dpkg -i "$QUARTO_INSTALLER"
+        sudo apt-get install -f
+    - name: Install Python dependencies 💾
+      run: |
+        pip install -r requirements.txt
+    - name: 🔧 Build Jupyter Notebooks 🧮 (demos)
+      run: make build-demos
+    - name: 🔧 Build Quarto Slides 📺 (slides)
+      run: make build-slides
+    - name: Deploy (Custom Domain) 🚀
+      if: github.ref == 'refs/heads/master'
+      uses: JamesIves/github-pages-deploy-action@3.7.1
+      with:
+        GITHUB_TOKEN: ${{ secrets.CONCIERGE_ACCESS_TOKEN }}
+        REPOSITORY_NAME: xmlx-io/usi-slides
+        BRANCH: webpage
+        FOLDER: _build
+        CLEAN: true
+    - name: Deploy Preparation (Mirror) 🔧
+      run: rm _build/CNAME
+    - name: Deploy (Mirror) 🚀
+      if: github.ref == 'refs/heads/master'
+      uses: JamesIves/github-pages-deploy-action@3.7.1
+      with:
+        GITHUB_TOKEN: ${{ secrets.CONCIERGE_ACCESS_TOKEN }}
+        REPOSITORY_NAME: xmlx-io/usi-slides-mirror
+        BRANCH: webpage
+        FOLDER: _build
+        CLEAN: true

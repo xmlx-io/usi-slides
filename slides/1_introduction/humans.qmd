@@ -1,0 +1,334 @@
+---
+title: "Human-Centred Explainability"
+---
+
+# Inmates Running the Asylum
+
+## Operational Vacuum
+
+- Focused on technology
+- Little consideration for the real world
+- Implicit target audience -- researchers and technologists
+
+> Example use case: *explanatory debugging* [@kulesza2015principles]
+
+::: aside
+[@miller2017explainable]
+:::
+
+## Who's at the Other End?
+
+- Explanations arise to
+
+    * address inconsistency with the **explainee's** beliefs, expectations or
+      mental model, e.g., an unexpected ML prediction causing a disagreement
+    * support learning or provide information needed by an **explainee**
+      to solve a problem or complete a task
+
+- Delivered at a request of a **human explainee**
+
+> An explanation is an answer to a "Why?" question [@miller2019explanation]
+
+::: {.notes}
+- Building up on the human-centred revolution mentioned in the *preliminaries* and
+  the collection of human-centred properties listed in the taxonomy
+
+- More definitions of explainability to follow in the *definitions* section
+- Who the recipient is -- making explanations human-centred
+:::
+
+## Enter Human-Centred Agenda
+
+Humans expect the explanations to be [@miller2019explanation]
+
+1. **contrastive**
+2. selective
+3. not overly technical
+4. **social**
+
+::: {.notes}
+- selective -- just enough information to address the explanatory needs,
+  as opposed to a full causal account
+- non-technical -- communicating specific probabilities of events
+  may not be helpful
+- explanations as a social process -- bidirectional, interactive,
+  communication-based
+:::
+
+## Composing an Explanation
+
+- **topic** -- what should be explained
+- **stakeholder** -- to whom something should be explained
+- **goal** -- why something should be explained
+- **instrument** -- how something should be explained
+
+::: aside
+[@buchholz2022means]
+:::
+
+## Complications
+
+- Diversity of human goals and expectations
+- Human biases, e.g.,
+  The Illusion of Explanatory Depth [@rozenblit2002misunderstood]
+
+. . .
+
+<hr>
+
+Counterfactual explanations are specific to a data point
+
+> Have you been 5 years older, your loan application would be accepted.
+
+::: {.notes}
+- People believe that they understand more than they actually do
+
+- Overconfidence may lead people to generalise a counterfactual explanation
+  beyond the instance for which it was generated
+  (to unseen and possibly unrelated cases)
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Contrastive Statements
+
+## Why?
+
+- Easy to understand (sparse by default)
+- Common in everyday life
+- Available in diverse formats (e.g., textual or visual)
+- Actionable from a *technical perspective*
+- Compliant with regulatory frameworks (e.g., GDPR)
+  [@wachter2017counterfactual]
+
+::: {.notes}
+- Technical actionability stems from counterfactuals prescribing a change
+  in the data point that leads to a different prediction
+:::
+
+## Example
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+<br>
+
+> Had you been **10 years younger**,  
+> your loan application would be **accepted**.
+:::
+
+::: {.column width="45%"}
+![]({{< meta custom-paths.figures >}}/img_cf.svg){fig-alt="Example of an image counterfactual explanation" width=100% fig-align="center"}
+:::
+
+::::
+
+## Duck Test
+
+<br>
+
+> If it looks like a duck, swims like a duck, and quacks like a duck,
+> then it probably is a duck.
+
+. . .
+
+<br>
+
+- **Counterfactuals are not necessarily causal!**
+
+## Actionability
+
+<br>
+
+> Had you been **10 years younger**,  
+> your loan application would be **accepted**.
+
+<br>
+
+<hr>
+
+<br>
+
+> Had you **paid back one of your credit cards**,  
+> your loan application would be **accepted**.
+
+::: {.notes}
+- Evolution of human-centredness:
+  non-actionable &rarr; actionable &rarr; feasible &rarr; provided through
+  algorithmic recourse
+:::
+
+## Feasibility
+
+![]({{< meta custom-paths.figures >}}/face.png){width=40% fig-align="center" fig-alt="FACE"}
+
+::: aside
+[@poyiadzi2020face]
+:::
+
+::: {.notes}
+- Is the generated instance realistic, i.e., from the data distribution?
+- Can it be reached from the explained data point?
+:::
+
+## Algorithmic Recourse
+
+- **Where** to go and **how** to get there
+- A sequence of steps (actions) guiding the explainee towards the desired goal
+  with explanations phrased as actionable recommendations
+
+<br>
+<hr>
+<br>
+
+- Independent manipulation of individual attributes is **undesirable** --
+  think feature *correlation*
+- Instead, these actions can be modelled as (causal) **interventions**
+
+::: aside
+[@karimi2022survey]
+:::
+
+::: {.notes}
+- action -- independent shift in feature values
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Social Process
+
+## Human Explainability
+
+<br>
+
+- **Bi-directional** explanatory process
+- **Questioning** and **explanatory** utterances
+- **Conversational**
+
+## Interactive Explainability
+
+<br>
+
+- One of the tenets of human-centred explainability
+- Largely neglected and unavailable [@schneider2019personalized]
+
+## Conversational Explainability
+
+<br>
+
+- Interactive personalisation and tuning of the explanations
+- Guiding the explainer to retrieve tailored insights
+
+## Na&iuml;ve Realisation
+
+Dialogue-based personalisation
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+> Why was my loan application denied?
+
+<br>
+
+> Instead of increasing my **income**.
+> Is there anything I can do about my **outstanding debt** to get this loan
+> approved?
+
+:::
+
+::: {.column width="50%"}
+
+<br>
+
+> Because of your income.
+> Had you earned &pound;5,000 more, it would have been granted.
+
+<br><br>
+
+> If you cancel one of your three **credit cards**, you will receive the loan.
+
+:::
+
+::::
+
+::: aside
+[@sokol2020one;@sokol2018glass]
+:::
+
+## Interactive &ne; Social
+
+<br>
+
+- Interactivity is insufficient, e.g.,
+  static explanation + dynamic user interface
+
+- Vehicle to personalise content (and other aspects)
+
+- Bespoke explanatory experience driven by context
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Summary
+
+<br>
+
+> Producing explanations is **necessary** but **insufficient** for
+> human-centred explainability
+
+. . .
+
+> These insights need to be relevant and comprehensible (*context*)
+> to explainees
+
+## Summary {{< meta subs.ctd >}}
+
+<br>
+
+> Explainers are **socio-technical** constructs,
+> hence we should strive for **seamless integration with humans** as well as
+> **technical correctness and soundness**
+
+## Summary {{< meta subs.ctd >}}
+
+<br>
+
+<!-- properties must be considered on a case-by-case basis -->
+
+> Each (real-life) explainability scenario is **unique** and
+> requires a **bespoke solution**
+
+## Summary {{< meta subs.ctd >}}
+
+<br>
+
+![]({{< meta custom-paths.figures >}}/elephant.svg){width=55% fig-align="center" fig-alt="The Blind Men and the Elephant"}
+
+::: aside
+(The Blind Men and the Elephant)
+:::
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

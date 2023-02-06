@@ -1,0 +1,27 @@
+# MacOS
+.DS_Store
+
+# Python
+__pycache__
+
+# Jupyter
+.ipynb_checkpoints
+
+# Quarto
+.quarto
+/.quarto/
+*_files
+*.html
+_build
+_extensions
+scraps.ipynb
+scraps.qmd
+
+# Resources
+doggo.jpg
+**/*.py
+
+# DrawIO
+*.drawio.bkp
+*.drawio.bkp
+*.drawio.dtmp
