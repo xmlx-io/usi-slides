@@ -39,7 +39,8 @@ format:
     toc: true
     toc-depth: 1
     toc-title: "Topics"
-    theme: moon
+#    theme: moon
+    theme: solarized
     width: 1680
 #  ipynb:
 #    from: ipynb+emoji

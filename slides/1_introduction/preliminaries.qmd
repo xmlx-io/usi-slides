@@ -141,7 +141,7 @@ plt.style.use('seaborn')
 
 > We tend to **request explanations** mostly when a phenomenon disagrees
 > with our expectations.
->
+> <br><br>
 > For example, an ML model behaves unlike we envisaged and
 > outputs an unexpected prediction.
 
@@ -231,6 +231,8 @@ plt.style.use('seaborn')
 
 ## Pitfalls
 
+Copy machine study done by @langer1978mindlessness:
+
 ```{python}
 #| echo: false
 #| fig-align: center
@@ -263,10 +265,6 @@ with plt.xkcd():
 plt.show()
 plt.style.use('seaborn')
 ```
-
-::: aside
-[@langer1978mindlessness]
-:::
 
 :::: {.notes}
 - The danger of "empty explanations" -- statements that look like explanations
@@ -601,11 +599,7 @@ A **generic** eXplainable Artificial Intelligence process is *beyond our reach* 
 
 ## Permutation Feature Importance
 
-<div style="background-color:#FAF9F6;">
-
 ![]({{< meta custom-paths.figures >}}/pfi.png){width=95% fig-align="center" fig-alt="PFI"}
-
-</div>
 
 ::: aside
 ([{{< fa person-chalkboard >}}](../3_feature-based/pfi.html)) &nbsp;&nbsp;&nbsp;
@@ -632,12 +626,7 @@ A **generic** eXplainable Artificial Intelligence process is *beyond our reach* 
 
 ## RuleFit
 
-
-<div style="background-color:#FAF9F6;">
-
 ![]({{< meta custom-paths.figures >}}/rulefit.png){width=50% fig-align="center" fig-alt="RuleFit"}
-
-</div>
 
 ::: aside
 ([{{< fa person-chalkboard >}}](../5_meta/rulefit.html)) &nbsp;&nbsp;&nbsp;
@@ -693,7 +682,7 @@ A **generic** eXplainable Artificial Intelligence process is *beyond our reach* 
 
 ::: {.column width="50%"}
 - [alibi]
-- [iml]
+- [iml][iml-soft]
 - LIME ([Python][lime-py], [R][lime-r])
 - SHAP ([Python][shap-py], [R][shap-r])
 :::
@@ -711,7 +700,7 @@ A **generic** eXplainable Artificial Intelligence process is *beyond our reach* 
 [fatf]: https://fat-forensics.org/
 [DALEX]: https://github.com/ModelOriented/DALEX
 [alibi]: https://github.com/SeldonIO/alibi
-[iml]: https://github.com/christophM/iml/
+[iml-soft]: https://github.com/christophM/iml/
 
 <!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
 

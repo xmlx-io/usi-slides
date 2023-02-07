@@ -21,9 +21,10 @@ jobs:
         QUARTO_INSTALLER=$(readlink -f quarto.deb)
         sudo dpkg -i "$QUARTO_INSTALLER"
         sudo apt-get install -f
-    - name: Install Python dependencies 💾
+    - name: Install Quarto and Python dependencies 💾
       run: |
         pip install -r requirements.txt
+        quarto install extension quarto-ext/fontawesome
     - name: 🔧 Build Jupyter Notebooks 🧮 (demos)
       run: make build-demos
     - name: 🔧 Build Quarto Slides 📺 (slides)

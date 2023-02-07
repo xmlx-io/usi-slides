@@ -897,6 +897,7 @@ How far from a decision boundary (confidence)?
 ## Summary
 
 - Explainability is characterised by a *broad range* of *diverse* properties
+- Striking the right ballance may be challenging
 - Desiderata include *social* and *technical* aspects of explainability
 - Having a readily available list of properties
   helps to better design XML systems

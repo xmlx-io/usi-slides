@@ -38,15 +38,24 @@ subtitle: >
 
 ### Work Experience {{< meta subs.ctd >}}
 
+:::: {.columns}
+
+::: {.column width="50%"}
 - Senior Research Associate,
   <br>TAILOR: European Union's AI Research Excellence Centre
   <br>(*University of Bristol*)
 - Research Associate,
   <br>Human-Centred Artificial Intelligence *in collaboration with THALES*
   <br>(*University of Bristol*)
+:::
+
+::: {.column width="50%"}
 - Research Assistant,
   <br>REFrAMe
   <br>(*University of Bristol*)
+:::
+
+::::
 
 ## About Me {{< meta subs.ctd >}}
 
@@ -54,15 +63,24 @@ subtitle: >
 
 ### Work Experience {{< meta subs.ctd >}}
 
+:::: {.columns}
+
+::: {.column width="50%"}
 - Visiting Research Fellow,
   <br>AI and Humanity Summer Cluster, Simons Institute for the Theory of Computing
   <br>(*UC Berkeley*)
 - Visiting Researcher,
   <br>Ubiquitous Computing Research Group
   <br>(*Universit&agrave; della Svizzera italiana*)
+:::
+
+::: {.column width="50%"}
 - Visiting Researcher,
   <br>Machine Learning research group
   <br>(*University of Tartu*)
+:::
+
+::::
 
 ## About Me {{< meta subs.ctd >}}
 
