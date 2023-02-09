@@ -1,0 +1,639 @@
+---
+title: "Decision Trees"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import sklearn.datasets
+import sklearn.tree
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours(dark=False):
+    solarized_dark = '#e4dbbd'
+    solarized_light = '#002b36'
+    colour = solarized_dark if dark else solarized_light
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+other_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][1]
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+
+two_mask = y_num != 2
+
+y_num_two = y_num[two_mask]
+X_num_two = X_num[two_mask, :]
+X_num_two = X_num_two[:, [2, 3]]
+
+clf_tree_toy = sklearn.tree.DecisionTreeClassifier(max_leaf_nodes=4, random_state=42)
+clf_tree_toy.fit(X_num_two, y_num_two)
+```
+
+# Model Overview
+
+## Model Synopsis
+
+<br>
+
+> A decision tree predicts the target by applying logical conditions to
+> the input features, until a terminal node, i.e., a leaf, is reached.
+> The (sequential) structure makes the model transparent.
+> A prediction is estimated as the average value (*regression*) or
+> majority class (*crisp classification*) of the training instances
+> based on which this leaf was built.
+
+<br><hr><br>
+
+> The learning algorithm chooses a feature based on its ability to decrease
+> the impurity of the data (subsets) after a split is made.
+
+:::aside
+Refer to ML textbooks for more details about decision trees [@flach2012machine].
+:::
+
+## Model Synopsis {{< meta subs.ctd >}}
+
+<br>
+
+> Decision trees can be interpreted though: model visualisation /
+> textualisation, feature importance, exemplars, what-ifs, rules, and
+> counterfactuals.
+
+## Toy Example
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Decision tree for 2 features -- tree visualisation
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+    fig = sklearn.tree.plot_tree(
+        clf_tree_toy,
+        feature_names=feature_names[2:],
+        class_names=target_names[:2],
+        filled=True, impurity=False, rounded=True)
+    fig = fig[0].get_figure()
+    fig.patch.set_alpha(0)
+
+plt.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Toy Example {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+x_min, x_max = X_num_two[:, 0].min(), X_num_two[:, 0].max()
+x_range = x_max - x_min
+y_min, y_max = X_num_two[:, 1].min(), X_num_two[:, 1].max()
+y_range = y_max - y_min
+
+padding = 0.15
+
+x_min -= x_range * padding
+x_max += x_range * padding
+
+y_min -= y_range * padding
+y_max += y_range * padding
+
+grid_step = 0.01
+grid_xx, grid_yy = np.meshgrid(
+    np.arange(x_min, x_max, grid_step),
+    np.arange(y_min, y_max, grid_step))
+grid_prediction = clf_tree_toy.apply(
+    np.c_[grid_xx.ravel(), grid_yy.ravel()])
+grid_prediction = grid_prediction.reshape(grid_xx.shape)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Decision tree for 2 features -- feature space partition
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+  fig, ax = plt.subplots(figsize=(6, 4))
+  fig.patch.set_alpha(0)
+
+  plt.scatter(X_num_two[:, 0], X_num_two[:, 1], c=y_num_two, zorder=10)
+
+  plt.contour(grid_xx, grid_yy, grid_prediction,
+              colors=['k'], linestyles=['-'],
+              levels=[0])
+
+  plt.xlabel(f'{feature_names[2]}')
+  plt.ylabel(f'{feature_names[3]}')
+
+plt.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Explanation Properties 
+
+<br>
+
+| *Property*           | **Classification and Regression Trees (CART)**        |
+|----------------------|-------------------------------------------------------|
+| *relation*           | ante-hoc                                              |
+| *compatibility*      | classification and regression trees (CART)            |
+| *modelling*          | regression and crisp & probabilistic classification   |
+| *scope*              | global, cohort and local                              |
+| *target*             | model, sub-space and prediction                       |
+
+## Explanation Properties {{< meta subs.ctd >}}
+
+<br>
+
+| *Property*           | **Classification and Regression Trees (CART)**        |
+|----------------------|-------------------------------------------------------|
+| *data*               | tabular                                               |
+| *features*           | numerical and categorical                             |
+| *explanation*        | model visualisation, feature influence & importance, rules, exemplars,what-ifs, counterfactuals |
+| *caveats*            | axis-parallel splits, target linearity                |
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+```{python}
+#| echo: false
+#| output: false
+
+clf_tree = sklearn.tree.DecisionTreeClassifier(max_leaf_nodes=4, random_state=42)
+clf_tree.fit(X_num, y_num)
+```
+
+## Model Visualisation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Decision tree visualisation
+#| fig-width: 55%
+
+fig = sklearn.tree.plot_tree(
+    clf_tree,
+    feature_names=feature_names,
+    class_names=target_names,
+    filled=True, impurity=False, rounded=True)
+fig = fig[0].get_figure()
+fig.patch.set_alpha(0)
+
+plt.show()
+```
+
+## Text Representation
+
+```{python}
+#| echo: false
+#| output: true
+
+print(sklearn.tree.export_text(
+    clf_tree,
+    feature_names=feature_names))
+```
+
+## Code Representation
+
+```{python}
+#| echo: false
+#| output: false
+
+def tree_to_code(tree, feature_names, class_names):
+    tree_ = tree.tree_
+    feature_name = [
+        feature_names[i] if i != sklearn.tree._tree.TREE_UNDEFINED else 'undefined!'
+        for i in tree_.feature
+    ]
+    print(f'def tree({", ".join(feature_names)}):')
+
+    def recurse(node, depth):
+        indent = "  " * depth
+        if tree_.feature[node] != sklearn.tree._tree.TREE_UNDEFINED:
+            name = feature_name[node]
+            threshold = tree_.threshold[node]
+            print(f'{indent}if {name} <= {threshold}:')
+            recurse(tree_.children_left[node], depth + 1)
+            print(f'{indent}else:  # if {name} > {threshold}')
+            recurse(tree_.children_right[node], depth + 1)
+        else:
+            print(f'{indent}return {class_names[np.argmax(tree_.value[node][0])]}')
+
+    recurse(0, 1)
+```
+
+```{python}
+#| echo: false
+#| output: true
+
+f_ = [i[:-5].replace(' ', '_') for i in feature_names]
+tree_to_code(clf_tree, feature_names=f_, class_names=target_names)
+```
+
+## Feature Importance
+
+- Node $n$ importance $i(n)$
+  (based on weighted impurity $C$)
+
+  $$
+  i(n) = \frac{|X_n|}{|X|} C(n)
+       - \frac{|X_{\mathit{left}(n)}|}{|X|} C(\mathit{left}(n))
+       - \frac{|X_{\mathit{right}(n)}|}{|X|} C(\mathit{right}(n))
+  $$
+
+- Feature $f$ importance $I(f)$
+
+  $$
+  I(f) = \frac{\sum_{n_f} i(n_f)}{\sum_n i(n)}
+  $$
+
+::: {.notes}
+- $C_n$ is impurity of node $n$
+- $n_f$ is a node splitting on feature $f$
+- $(X_n, Y_n)$ is a set of data points and their labels $(x, y)$
+  situated within the node $n$
+:::
+
+## Feature Importance {{< meta subs.ctd >}}
+
+* Crisp classification -- *Gini impurity* $C^{\mathit{G}}$
+
+  $$
+  C^{\mathit{G}}(n) = 1 - \sum_{c \in C}p_{n}^2(c)\\
+  p_{n}(c) = \frac{1}{|X_n|} \sum_{(x, y) \in (X_n, Y_n)} \mathbb{1}_{y = c}
+  $$
+
+* Regression or probabilistic classification -- *mean squared error*
+  $C^{\mathit{MSE}}$
+
+  $$
+  C^{\mathit{MSE}}(n) = \frac{1}{|X_n|} \sum_{(x, y) \in (X_n, Y_n)} (y - \bar{y}_{n})^2 \\
+  \bar{y}_{n} = \frac{1}{|X_n|} \sum_{(x, y) \in (X_n, Y_n)} y
+  $$
+
+::: {.notes}
+- $C$ is the set of all the unique labels $c$
+:::
+
+## Feature Importance {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Bar plot explanation
+#| fig-width: 55%
+
+mpl.rc('text', usetex=True)
+exp = clf_tree.feature_importances_.tolist()
+exp_c = ['r' if i < 0 else 'g' for i in exp]
+exp_n = [f'\\(x_{{{i + 1:d}}}\\): {f}' for i, f in enumerate(feature_names)]
+
+fig = plt.figure(figsize=(6, 4))
+fig.patch.set_alpha(0)
+plt.barh(exp_n, exp, color=exp_c, height=.5)
+
+for i, (v, c) in enumerate(zip(exp, exp_c)):
+    if v < 0:
+        v_ = v - 0.2
+    else:
+        v_ = v + 0.05
+    plt.text(
+        v_, i, '\\(\mathbf{{{:.2f}}}\\)'.format(v), color=c)
+plt.xlim([min(min(exp), 0)-0.25, max(exp)+0.2])
+
+#plt.gca().invert_yaxis()
+plt.tight_layout()
+plt.show()
+```
+
+::: {.notes}
+- Lay people have been show to assume that the most important feature is the
+  one at the root split of the tree
+:::
+
+## Exemplar Explanation
+
+```{python}
+#| echo: false
+#| output: false
+
+instance_id = 42
+instance_feature = 'petal length (cm)'
+```
+
+```{python}
+#| echo: false
+#| output: asis
+
+X_num_pd = pd.DataFrame(X_num, columns=feature_names)
+X_num_pd['tree leaf'] = clf_tree.apply(X_num)
+X_num_pd.iloc[[instance_id]]
+```
+
+. . .
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+X_num_pd[X_num_pd['tree leaf'] == X_num_pd.iloc[instance_id]['tree leaf']].tail()
+```
+
+## What-if Explanation
+
+```{python}
+#| echo: false
+#| output: asis
+
+X_num_pd = pd.DataFrame(X_num, columns=feature_names)
+X_num_pd['tree leaf'] = clf_tree.apply(X_num)
+X_num_pd.iloc[[instance_id]]
+```
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(f'Predicted as *{target_names[clf_tree.predict(X_num[[instance_id], :])[0]]}*')
+```
+
+. . .
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+tmp_ = X_num_pd.iloc[[instance_id]].copy()
+tmp_[instance_feature] = 2.7
+tmp_['tree leaf'] = clf_tree.apply(tmp_.to_numpy()[:, :-1])[0]
+tmp_.reset_index(inplace=True)
+del tmp_['index']
+tmp_
+```
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(f'Predicted as *{target_names[clf_tree.predict(tmp_.to_numpy()[:, :-1])[0]]}*')
+```
+
+## Rule Explanation
+
+```{python}
+#| echo: false
+#| output: false
+
+# https://mljar.com/blog/extract-rules-decision-tree/#extract-human-readable-rules
+def get_rules(tree, feature_names, class_names):
+    tree_ = tree.tree_
+    feature_name = [
+        feature_names[i] if i != sklearn.tree._tree.TREE_UNDEFINED else 'undefined!'
+        for i in tree_.feature
+    ]
+
+    paths = []
+    path = []
+    
+    def recurse(node, path, paths):
+        
+        if tree_.feature[node] != sklearn.tree._tree.TREE_UNDEFINED:
+            name = feature_name[node]
+            threshold = tree_.threshold[node]
+            p1, p2 = list(path), list(path)
+            p1 += [f'({name} <= {np.round(threshold, 3)})']
+            recurse(tree_.children_left[node], p1, paths)
+            p2 += [f'({name} > {np.round(threshold, 3)})']
+            recurse(tree_.children_right[node], p2, paths)
+        else:
+            path += [(tree_.value[node], tree_.n_node_samples[node])]
+            paths += [path]
+            
+    recurse(0, path, paths)
+
+    # sort by samples count
+    samples_count = [p[-1][1] for p in paths]
+    ii = list(np.argsort(samples_count))
+    paths = [paths[i] for i in reversed(ii)]
+    
+    rules = []
+    for path in paths:
+        rule = 'if '
+        
+        for p in path[:-1]:
+            if rule != 'if ':
+                rule += ' and '
+            rule += str(p)
+        rule += ' then '
+        if class_names is None:
+            rule += 'response: '+str(np.round(path[-1][0][0][0],3))
+        else:
+            classes = path[-1][0][0]
+            l = np.argmax(classes)
+            rule += f'class: {class_names[l]} (proba: {np.round(100.0*classes[l]/np.sum(classes),2)}%)'
+        rule += f' | based on {path[-1][1]:,} samples'
+        rules += [rule]
+        
+    return rules
+```
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+```{python}
+#| echo: false
+#| output: true
+
+rules = get_rules(clf_tree, feature_names, target_names)
+for r in rules[:2]:
+    r_ = '('.join(r.split('(')[:-1]).strip()
+    r_ = [i.strip() for i in r_.split('and')]
+    r_ = '\n  and '.join(r_)
+    #
+    r_ = [i.strip() for i in r_.split('then')]
+    r_ = '\n    then '.join(r_)
+    print(r_, '\n\n')
+```
+:::
+
+::: {.column width="50%"}
+```{python}
+#| echo: false
+#| output: true
+
+rules = get_rules(clf_tree, feature_names, target_names)
+for r in rules[2:]:
+    r_ = '('.join(r.split('(')[:-1]).strip()
+    r_ = [i.strip() for i in r_.split('and')]
+    r_ = '\n  and '.join(r_)
+    #
+    r_ = [i.strip() for i in r_.split('then')]
+    r_ = '\n    then '.join(r_)
+    print(r_, '\n\n')
+```
+:::
+
+::::
+
+## Counterfactual Explanation
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+    f'> If **{instance_feature}** changes from '
+    f'**{X_num_pd.iloc[instance_id][instance_feature]}** to '
+    f'**{tmp_[instance_feature][0]}**, the prediction will change from '
+    f'**{target_names[clf_tree.predict(X_num[[instance_id], :])[0]]}** to '
+    f'**{target_names[clf_tree.predict(tmp_.to_numpy()[:, :-1])[0]]}**.'
+)
+```
+
+. . .
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+X_num_pd.iloc[[instance_id]][feature_names]
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Properties
+
+## Pros &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+- Transparent from the outset due to their underlying (sequential) structure --
+  predictions are derived by evaluating a series of logical conditions
+- **Easy to interpret** (given relevant background knowledge)
+
+- Feature correlation is not that much of a problem
+- Capable of modelling nonlinear relations
+
+::: {.notes}
+- Because of purity-based splits feature correlation and interaction are not a
+  major issue
+:::
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+- Limited to axis-parallel splits
+  (unless *oblique trees* are used)
+- This restriction impacts their ability to model linear relationships
+  (since staggered boundaries must be created)
+- It also causes non-smooth predictions
+  (prediction changes once a threshold is crossed)
+
+::: {.notes}
+- Lack of smoothness entails predictive behaviour that is not robust
+:::
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}} {{< meta subs.ctd >}}
+
+- The training procedure is greedy, hence the model structure may be unstable
+- Large trees may become overwhelming and incomprehensible,
+  but still transparent
+- Tree size can be reduced with *pruning*
+
+## Caveats &nbsp;&nbsp;&nbsp;{{< fa skull >}}
+
+- Interpreting large trees may be challenging without further
+  (algorithmic) processing
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Further Considerations
+
+## Summary
+
+- (Small) decision trees are transparent
+- They offer a wide array of explanatory insights
+
+## Implementations
+
+| {{< fa brands python >}} Python          | {{< fa brands r-project >}} R     |
+|:-----------------------------------------|:----------------------------------|
+| [scikit-learn][sklearn]                  | [rpart]                           |
+
+
+: {tbl-colwidths="[50,50]"}
+
+[sklearn]: https://scikit-learn.org/stable/modules/classes.html#module-sklearn.linear_model
+[rpart]: https://cran.r-project.org/web/packages/rpart/
+
+## Further Reading
+
+- [scikit-learn guide][sklearn-guide]
+- [*Interpretable Machine Learning* book][iml-book]
+- *Machine learning: The art and science of algorithms that make sense of data*
+  textbook [@flach2012machine]
+
+[sklearn-guide]: https://scikit-learn.org/stable/modules/tree.html
+[iml-book]: https://christophm.github.io/interpretable-ml-book/tree.html
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

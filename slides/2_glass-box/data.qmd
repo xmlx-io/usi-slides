@@ -1,0 +1,500 @@
+---
+title: "Explaining Data"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import sklearn.datasets
+import sklearn.cluster
+import sklearn.manifold
+import sklearn.preprocessing
+
+import pandas as pd
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours(dark=False):
+    solarized_dark = '#e4dbbd'
+    solarized_light = '#002b36'
+    colour = solarized_dark if dark else solarized_light
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+
+iris_X_pd = pd.DataFrame(X_num, columns=feature_names)
+
+iris_y_pd = pd.Series(y_num)
+iris_y_name_pd = iris_y_pd.map(lambda x: target_names[x])
+
+iris_X_y_pd = iris_X_pd.copy()
+iris_X_y_pd['target'] = iris_y_name_pd
+```
+
+# Describing Data
+
+::: {.notes}
+- Minimal or no modelling assumption
+- Pure data explanation techniques
+:::
+
+## Data as a Model
+
+- Representation of some *underlying phenomenon* -- an **implicit** model
+- Inherent *assumptions* as well as *measurement limitations* and *errors*
+
+<br><hr><br>
+
+- Collection influence by factors such as *world view* and *mental model*
+- Possibly *partial* and *subjective*
+- Embedded cultural biases, e.g., "How much is a lot?"
+
+## Data Characteristics
+
+<br>
+
+Summary statistics
+
+- feature distribution
+- per-class feature distribution
+- feature correlation
+- class distribution and ratio
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+
+iris_X_pd.describe()
+```
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature correlation
+#| fig-width: 55%
+
+X_num_corr = np.flipud(np.corrcoef(X_num, rowvar=False))
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(X_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks(np.arange(len(feature_names)), labels=feature_names[::-1])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for i in range(len(feature_names)):
+    for j in range(len(feature_names)):
+        text = ax.text(j, i, f'{X_num_corr[i, j]:1.2f}',
+                       ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature and target correlation
+#| fig-width: 55%
+
+y_num_corr = np.array([np.flipud(np.corrcoef(X_num, y=y_num, rowvar=False))[0][:-1]])
+
+plt.style.use('default')
+update_colours()
+
+fig, ax = plt.subplots()
+fig.patch.set_alpha(0)
+
+im = ax.imshow(np.abs(y_num_corr), vmin=0, vmax=1, alpha=.5, cmap='bwr')
+
+# Show all ticks and label them with the respective list entries
+ax.set_xticks(np.arange(len(feature_names)), labels=feature_names)
+ax.set_yticks([0], labels=['Iris type'])
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=15, ha='right',
+         rotation_mode='anchor')
+plt.setp(ax.get_yticklabels(), rotation=0, ha='right',
+         rotation_mode='anchor')
+
+# Loop over data dimensions and create text annotations.
+for j in range(len(feature_names)):
+    text = ax.text(j, 0, f'{y_num_corr[0, j]:1.2f}',
+                   ha='center', va='center', color='k')
+
+ax.set_title('Correlation coefficient between Iris features and target')
+fig.tight_layout()
+plt.show()
+
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature distribution
+#| fig-width: 55%
+
+axs = pd.plotting.scatter_matrix(iris_X_pd, alpha=0.2, figsize=(16, 8), diagonal='hist')
+fig = axs[0, 0].get_figure()
+fig.patch.set_alpha(0)
+plt.subplots_adjust(wspace=.15, hspace=.15)
+plt.show()
+```
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature distribution per class
+#| fig-width: 55%
+
+fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(12, 4))
+fig.patch.set_alpha(0)
+for i, f in enumerate(feature_names[:2]):
+    plt.sca(axs[i])
+    iris_X_y_pd.groupby('target')[f].hist(alpha=0.75)
+    plt.xlabel(f'{f}')
+plt.show()
+```
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris feature distribution per class
+#| fig-width: 55%
+
+fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(12, 4))
+fig.patch.set_alpha(0)
+for i, f in enumerate(feature_names[2:]):
+    plt.sca(axs[i])
+    iris_X_y_pd.groupby('target')[f].hist(alpha=0.75)
+    plt.xlabel(f'{f}')
+plt.show()
+```
+
+## Data Characteristics {{< meta subs.ctd >}}
+
+<br>
+
+Transform characteristics and observations into explanations
+
+- "The classes are balanced"
+- "The data are bimodal"
+- "These features are highly correlated"
+
+::: {.notes}
+- Statistics state well defined properties
+- These may not be considered explanations
+- Data "explanations" can be contrastive and lead to understanding
+:::
+
+## Data Documentation
+
+:::: {.columns}
+
+::: {.column width="50%"}
+- Data Statements [@bender2018data]
+- Data Sheets for Data Sets [@gebru2018datasheets]
+- Nutrition Labels for Data Sets [@holland2018dataset]
+:::
+
+::: {.column width="50%"}
+- experimental setup (implicit assumptions)
+- collection methodology (by whom and for what purpose)
+- applied pre-processing (cleaning and aggregation)
+- privacy aspects
+- data owners
+:::
+
+::::
+
+::: {.notes}
+- Characterise important aspects of data and their collection process
+:::
+
+## Data Documentation {{< meta subs.ctd >}}
+
+- ML and AI services [@hind2018increasing]
+- predictive models [@mitchell2019model]
+- privacy aspects [@kelley2009nutrition]
+- ranking algorithms [@yang2018nutritional]
+- AI explainability [@sokol2020explainability]
+- algorithmic impact [@reisman2018algorithmic]
+
+::: {.notes}
+- Similar concepts for other aspects of ML components
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Model-based Explainability
+
+::: {.notes}
+- We need to make some modelling assumption
+:::
+
+## Instance-based Explainability
+
+```{python}
+#| echo: false
+#| output: false
+
+two_mask = y_num != 2
+
+y_num_two = y_num[two_mask]
+X_num_two = X_num[two_mask, :]
+X_num_two = X_num_two[:, [2, 3]]
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+db = sklearn.cluster.DBSCAN(eps=0.3, min_samples=10).fit(X_num_two)
+
+labels = db.labels_
+
+n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+n_noise_ = list(labels).count(-1)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Iris clustering and centroids
+#| fig-width: 55%
+
+fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+unique_labels = set(labels)
+core_samples_mask = np.zeros_like(labels, dtype=bool)
+core_samples_mask[db.core_sample_indices_] = True
+
+colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+for k, col in zip(unique_labels, colors):
+    if k == -1:
+        # Black used for noise.
+        col = [0, 0, 0, 1]
+
+    class_member_mask = labels == k
+
+    xy = X_num_two[class_member_mask & core_samples_mask]
+    plt.plot(
+        xy[:, 0],
+        xy[:, 1],
+        'o',
+        markerfacecolor=tuple(col),
+        markeredgecolor='k',
+        markersize=14,
+    )
+    centroid = xy.mean(axis=0)
+    if not np.isnan(centroid).any():
+        plt.scatter(centroid[0], centroid[1], marker='X', s=250, c='green', zorder=25, alpha=.75)
+
+    xy = X_num_two[class_member_mask & ~core_samples_mask]
+    plt.plot(
+        xy[:, 0],
+        xy[:, 1],
+        'o',
+        markerfacecolor=tuple(col),
+        markeredgecolor='k',
+        markersize=6,
+    )
+
+plt.scatter(X_num_two[:, 0], X_num_two[:, 1], c=y_num_two,
+            zorder=15, cmap=plt.cm.Paired, edgecolors='k', s=25, alpha=.25)
+
+plt.title(f'{n_clusters_} clusters found')
+plt.xlabel(f'{feature_names[2]}')
+plt.ylabel(f'{feature_names[3]}')
+plt.show()
+```
+
+::: {.notes}
+- For distance-based or neighbour-based you need a **similarity metric**
+- We will have a look at relevant -- instance-based -- explainability
+  techniques such as exemplars, prototypes and criticisms later
+:::
+
+## Dimensionality Reduction
+
+- Embeddings
+- Projections
+
+::: aside
+[@van2008visualizing]
+:::
+
+::: {.notes}
+- Look into principle component analysis (PCA) as well
+:::
+
+## Dimensionality Reduction {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+mnist_dict = sklearn.datasets.load_digits()
+
+tsne = sklearn.manifold.TSNE(
+    n_components=2, n_iter=500, n_iter_without_progress=150, n_jobs=2,
+    random_state=42)
+tsne_projections = tsne.fit_transform(mnist_dict.data, mnist_dict.target)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# https://scikit-learn.org/stable/auto_examples/manifold/plot_lle_digits.html
+def plot_embedding(X, y, title):
+    fig, ax = plt.subplots()
+    fig.patch.set_alpha(0)
+    X = sklearn.preprocessing.MinMaxScaler().fit_transform(X)
+    
+    for digit in mnist_dict.target_names:
+        ax.scatter(
+            *X[y == digit].T,
+            marker=f'${digit}$',
+            s=60,
+            color=plt.cm.Dark2(digit),
+            alpha=0.425,
+            zorder=2,
+        )
+    shown_images = np.array([[1.0, 1.0]])  # just something big
+    for i in range(X.shape[0]):
+        # plot every digit on the embedding
+        # show an annotation box for a group of digits
+        dist = np.sum((X[i] - shown_images) ** 2, 1)
+        if np.min(dist) < 4e-3:
+            # don't show points that are too close
+            continue
+        shown_images = np.concatenate([shown_images, [X[i]]], axis=0)
+        imagebox = mpl.offsetbox.AnnotationBbox(
+            mpl.offsetbox.OffsetImage(mnist_dict.images[i], cmap=plt.cm.gray_r), X[i]
+        )
+        imagebox.set(zorder=1)
+        ax.add_artist(imagebox)
+    
+    ax.set_title(title)
+    ax.axis('off')
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: t-SNE embeddings
+#| fig-width: 55%
+
+plot_embedding(tsne_projections, mnist_dict.target, 't-SNE')
+plt.show()
+```
+
+## Dimensionality Reduction {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+tsne = sklearn.manifold.TSNE(
+    n_components=2, perplexity=1, early_exaggeration=3,
+    n_iter=500, n_iter_without_progress=150, n_jobs=2,
+    random_state=142)
+tsne_projections = tsne.fit_transform(mnist_dict.data, mnist_dict.target)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: t-SNE embeddings
+#| fig-width: 55%
+
+plot_embedding(tsne_projections, mnist_dict.target, 't-SNE')
+plt.show()
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Wrap Up
+
+## Summary
+
+- Explainability is relevant to data **collection** and **processing**
+- We usually have to make some **modelling assumptions**
+- Parameterisation may be tricky
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

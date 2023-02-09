@@ -1,0 +1,851 @@
+---
+title: "Linear Models"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import shap
+import sklearn.datasets
+import sklearn.linear_model
+
+import IPython.utils.capture as ipc
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours(dark=False):
+    solarized_dark = '#e4dbbd'
+    solarized_light = '#002b36'
+    colour = solarized_dark if dark else solarized_light
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+other_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][1]
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+
+two_mask = y_num != 2
+
+y_num_two = y_num[two_mask]
+X_num_two = X_num[two_mask, :]
+X_num_two = X_num_two[:, [2, 3]]
+
+clf_line = sklearn.linear_model.RidgeClassifier()
+clf_line.fit(X_num_two, y_num_two)
+```
+
+# Model Overview
+
+## Model Synopsis
+
+<br>
+
+> A linear model predicts the target as a weighted sum of the input features.
+
+<br>
+
+> The independence and additivity of the model's structure make it transparent.
+> The weights communicate the **global** (with respect to the entire model)
+> **feature influence** and **importance**.
+
+:::aside
+Refer to ML textbooks for more details about linear models [@flach2012machine].
+:::
+
+## Toy Example
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\nf(\\mathbf{{x}}) = {clf_line.intercept_[0]:1.2f} \\;\\; + \\;\\; '
+  f'{clf_line.coef_[0, 0]:1.2f} \\times x_1 \\;\\; + \\;\\; '
+  f'{clf_line.coef_[0, 1]:1.2f} \\times x_2\n$$')
+```
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\\omega_0 = {clf_line.intercept_[0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'\\omega_1 = {clf_line.coef_[0, 0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'\\omega_2 = {clf_line.coef_[0, 1]:1.2f}$$')
+```
+
+## Toy Example {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+x_min, x_max = X_num_two[:, 0].min(), X_num_two[:, 0].max()
+x_range = x_max - x_min
+y_min, y_max = X_num_two[:, 1].min(), X_num_two[:, 1].max()
+y_range = y_max - y_min
+
+padding = 0.15
+
+x_min -= x_range * padding
+x_max += x_range * padding
+
+y_min -= y_range * padding
+y_max += y_range * padding
+
+grid_step = 0.01
+grid_xx, grid_yy = np.meshgrid(
+    np.arange(x_min, x_max, grid_step),
+    np.arange(y_min, y_max, grid_step))
+grid_prediction = clf_line.decision_function(
+    np.c_[grid_xx.ravel(), grid_yy.ravel()])
+grid_prediction = grid_prediction.reshape(grid_xx.shape)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Linear model for 2 features
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+  fig, ax = plt.subplots(figsize=(6, 4))
+  fig.patch.set_alpha(0)
+
+  plt.scatter(X_num_two[:, 0], X_num_two[:, 1], c=y_num_two, zorder=10)
+
+  plt.contour(grid_xx, grid_yy, grid_prediction,
+              colors=['k'], linestyles=['-'],
+              levels=[0])
+
+  plt.xlabel(f'{feature_names[2]}')
+  plt.ylabel(f'{feature_names[3]}')
+
+plt.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Explanation Properties 
+
+<br>
+
+| *Property*           | **Linear Models**                                     |
+|----------------------|-------------------------------------------------------|
+| *relation*           | ante-hoc                                              |
+| *compatibility*      | linear models                                         |
+| *modelling*          | regression (crisp classification)                     |
+| *scope*              | global and local                                      |
+| *target*             | model and prediction                                  |
+
+## Explanation Properties {{< meta subs.ctd >}}
+
+<br>
+
+| *Property*           | **Linear Models**                                     |
+|----------------------|-------------------------------------------------------|
+| *data*               | tabular                                               |
+| *features*           | numerical and (one hot-encoded) categorical           |
+| *explanation*        | model visualisation, feature influence & importance   |
+| *caveats*            | feature correlation, target nonlinearity              |
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+## Model Visualisation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Linear model for 2 features
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(6, 4))
+fig.patch.set_alpha(0)
+
+plt.scatter(X_num_two[:, 0], X_num_two[:, 1], c=y_num_two,
+            zorder=10, cmap=plt.cm.Paired, edgecolors='k')
+
+plt.pcolormesh(grid_xx, grid_yy, grid_prediction > 0, cmap=plt.cm.Paired)
+
+plt.contour(grid_xx, grid_yy, grid_prediction,
+            colors=['k'], linestyles=['-'],
+            levels=[0])
+
+plt.xlabel(f'{feature_names[2]}')
+plt.ylabel(f'{feature_names[3]}')
+
+plt.show()
+```
+
+::: {.notes}
+- Model visualisation is limited to 2, maybe 3 features
+:::
+
+## Model Equation
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\nf(\\mathbf{{x}}) = {clf_line.intercept_[0]:1.2f} \\;\\; + \\;\\; '
+  f'{clf_line.coef_[0, 0]:1.2f} \\times x_1 \\;\\; + \\;\\; '
+  f'{clf_line.coef_[0, 1]:1.2f} \\times x_2\n$$')
+```
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\\omega_0 = {clf_line.intercept_[0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'\\omega_1 = {clf_line.coef_[0, 0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'\\omega_2 = {clf_line.coef_[0, 1]:1.2f}$$')
+```
+
+## Feature Influence & Importance
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Bar plot explanation
+#| fig-width: 55%
+
+mpl.rc('text', usetex=True)
+exp = clf_line.coef_[0, :].tolist()
+exp_c = ['r' if i < 0 else 'g' for i in exp]
+exp_n = [f'\\(x_{{{i + 1:d}}}\\): {f}' for i, f in enumerate(feature_names[2:])]
+
+fig = plt.figure(figsize=(6, 4))
+fig.patch.set_alpha(0)
+plt.barh(exp_n, exp, color=exp_c, height=.5)
+
+for i, (v, c) in enumerate(zip(exp, exp_c)):
+    if v < 0:
+        v_ = v - 0.2
+    else:
+        v_ = v + 0.05
+    plt.text(
+        v_, i, '\\(\mathbf{{{:.2f}}}\\)'.format(v), color=c)
+plt.xlim([min(min(exp), 0)-0.25, max(exp)+0.2])
+
+#plt.gca().invert_yaxis()
+plt.tight_layout()
+plt.show()
+```
+
+## Feature Effect
+
+```{python}
+#| echo: false
+#| output: false
+
+feature_effect = X_num_two * clf_line.coef_
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Feature effect -- box plot
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+pos_name = feature_names[2:]
+pos = list(range(len(pos_name)))
+
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[0]), feature_effect[:, 0],
+            marker='o', s=15, zorder=5, alpha=0.3, c=line_colour)
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[1]), feature_effect[:, 1],
+            marker='o', s=15, zorder=5, alpha=0.3, c=line_colour)
+plt.boxplot(feature_effect, positions=pos, widths=0.4, showmeans=True)
+
+plt.xticks(pos, pos_name, rotation=0)
+
+plt.ylabel('Feature Effect')
+
+plt.show()
+```
+
+## Feature Effect {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Feature effect -- violin plot
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+pos_name = feature_names[2:]
+pos = list(range(len(pos_name)))
+
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[0]), feature_effect[:, 0],
+            marker='o', s=15, zorder=5, alpha=0.3, c=line_colour)
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[1]), feature_effect[:, 1],
+            marker='o', s=15, zorder=5, alpha=0.3, c=line_colour)
+
+plt.scatter(pos, feature_effect.mean(axis=0),
+            marker='X', s=200, zorder=10, alpha=0.6, c=other_colour)
+plt.violinplot(feature_effect, positions=pos, widths=0.8)
+
+plt.xticks(pos, pos_name, rotation=0)
+
+plt.ylabel('Feature Effect')
+
+plt.show()
+```
+
+## Individual Effect
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Individual effect -- violin plot
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+instance_id = 42
+
+pos_name = feature_names[2:]
+pos = list(range(len(pos_name)))
+
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[0]), feature_effect[:, 0],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour,
+            label='individual effects')
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[1]), feature_effect[:, 1],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour)
+
+plt.scatter(pos, feature_effect.mean(axis=0),
+            marker='X', s=200, zorder=10, alpha=0.6, c=other_colour,
+            label='mean effect')
+plt.violinplot(feature_effect, positions=pos, widths=0.8)
+
+plt.scatter(pos, feature_effect[instance_id, :],
+            marker='_', s=400, zorder=15, alpha=0.6, c='red',
+            label='explained instance')
+
+plt.xticks(pos, pos_name, rotation=0)
+
+plt.ylabel('Feature Effect')
+
+plt.legend(loc='upper right', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.show()
+```
+
+## Individual Effect {{< meta subs.ctd >}}
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\\omega_0 = {clf_line.intercept_[0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'\\omega_1 = {clf_line.coef_[0, 0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'\\omega_2 = {clf_line.coef_[0, 1]:1.2f}$$')
+```
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$x_1 = {X_num_two[instance_id, 0]:1.2f} \\;\\;\\;\\;\\;\\;\\;\\; '
+  f'x_2 = {X_num_two[instance_id, 1]:1.2f}$$')
+```
+
+## Individual Effect {{< meta subs.ctd >}}
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\nf(\\mathbf{{x}}) = {clf_line.intercept_[0]:1.2f} \\;\\; + \\;\\; '
+  f'\\underbrace{{{clf_line.coef_[0, 0]:1.2f} \\times {X_num_two[instance_id, 0]:1.2f}}}_{{x_1}} \\;\\; + \\;\\; '
+  f'\\underbrace{{{clf_line.coef_[0, 1]:1.2f} \\times {X_num_two[instance_id, 1]:1.2f}}}_{{x_2}}\n$$')
+```
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+print(
+  f'$$\nf(\\mathbf{{x}}) = {clf_line.intercept_[0]:1.2f} \\;\\; + \\;\\; '
+  f'\\underbrace{{{clf_line.coef_[0, 0] * X_num_two[instance_id, 0]:1.2f}}}_{{x_1}} \\;\\; + \\;\\; '
+  f'\\underbrace{{{clf_line.coef_[0, 1] * X_num_two[instance_id, 1]:1.2f}}}_{{x_2}}\n$$')
+```
+
+## Individual Effect {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: asis
+
+#with ipc.capture_output():
+shap.initjs()
+# ['x<tspan dy="-7" font-size=".7em">1</tspan>', 'x<tspan dy="-7" font-size=".7em">2</tspan>']
+shap.plots.force(clf_line.intercept_[0], shap_values=feature_effect[instance_id, :],
+                 feature_names=pos_name,
+                 matplotlib=False)
+```
+
+## Textualisation
+
+<br>
+
+```{python}
+#| echo: false
+#| output: asis
+
+action = ['increases' if i > 0 else 'decreases' for i in clf_line.coef_[0]]
+print(
+  f'> Increasing *{pos_name[0]}* by 1, {action[0]} the prediction by '
+  f'{clf_line.coef_[0, 0]:1.2f}, *ceteris paribus*.'
+  '\n>\n>\n'
+  f'> Increasing *{pos_name[1]}* by 1, {action[1]} the prediction by '
+  f'{clf_line.coef_[0, 1]:1.2f}, *ceteris paribus*.'
+)
+```
+
+::: {.notes}
+- For **categorical features**:
+
+  > Changing feature $x_i$ from *foil* ($0$) to *fact* ($1$) increases
+  > the prediction by $\omega_k$, *ceteris paribus*.
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Variants #
+
+## Feature Interaction
+
+<br>
+
+> Manually introducing feature interaction terms allows linear models to
+> account for such phenomena.
+
+<br>
+
+$$
+f(\mathbf{x}) = \omega_0 + \omega_1 x_1 + \cdots + \omega_n x_n +
+\underbrace{\omega_{n+1} x_4 x_6}_{\textit{interaction}}
+$$
+
+## Generalized Linear Models
+
+<br>
+
+> Generalized Linear Models (GLMs) allow to model alternative (to Gaussian)
+> distributions of the prediction target.
+
+<br>
+
+$$
+g(\mathbb{E}_Y(y|\mathbf{x})) = \omega_0 + \omega_1 x_1 + \cdots + \omega_n x_n
+$$
+
+::: aside
+[@nelder1972generalized]
+:::
+
+::: {.notes}
+- The relationship is modelled by the *link function* $g$
+- This allows "the magnitude of the variance of each measurement
+  to be a function of its predicted value"
+:::
+
+## Generalized Additive Models
+
+<br>
+
+> Generalized Additive Models (GAMs) allow to model nonlinear relationships --
+> a *weighted sum* is replaced by a *sum of arbitrary functions*.
+
+<br>
+
+$$
+g(\mathbb{E}_Y(y|\mathbf{x})) = \omega_0 + f_1(x_1) + \cdots + f_n(x_n)
+$$
+
+::: {.notes}
+- Extension to model nonlinear relationships
+- Instead of a *weighted sum*, a *sum of arbitrary functions*
+:::
+
+## Many More
+
+<br>
+
+> This list is far from comprehensive and exhaustive.
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Case Studies & Gotchas!
+
+## Feature Selection
+
+<br>
+
+- Large models may become overwhelming and incomprehensible
+  (but still transparent)
+
+. . .
+
+- Achieved with *feature selection* or *sparse linear models*
+
+<br>
+
+$$
+f(\mathbf{x}) = 0.2 \;\;
+              + \;\; 0.25 \times x_1 \;\;
+              - \;\; 0.47 \times x_2 \;\;
+              + \;\; 0.01 \times x_3 \;\;
+              + \;\; 0.70 \times x_4 \\
+              - \;\; 0.20 \times x_5 \;\;
+              - \;\; 0.33 \times x_6 \;\;
+              - \;\; 0.90 \times x_7
+$$
+
+## Incomparability of Parameters
+
+- The coefficients are *uninformative* unless the features are *standardised*
+  (zero mean, one standard deviation)
+  $$
+  \mathring{x}_i = \frac{x_i - \mu_i}{\sigma_i}
+  $$
+
+. . .
+
+- The reference point becomes an *all-zero* instance --
+  a mean-valued data point
+- The intercept communicates the prediction of the reference point
+
+::: {.callout-warning}
+## Feasibility of the Reference Instance
+
+The reference point may be out-of-distribution.
+:::
+
+## Incomparability of Parameters {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Bar plot explanation -- no normalisation
+#| fig-width: 55%
+
+mpl.rc('text', usetex=True)
+exp = clf_line.coef_[0, :].tolist()
+exp_c = ['r' if i < 0 else 'g' for i in exp]
+exp_n = [f'\\(x_{{{i + 1:d}}}\\): {f}' for i, f in enumerate(feature_names[2:])]
+
+fig = plt.figure(figsize=(6, 4))
+fig.patch.set_alpha(0)
+plt.barh(exp_n, exp, color=exp_c, height=.5)
+
+for i, (v, c) in enumerate(zip(exp, exp_c)):
+    if v < 0:
+        v_ = v - 0.2
+    else:
+        v_ = v + 0.05
+    plt.text(
+        v_, i, '\\(\mathbf{{{:.2f}}}\\)'.format(v), color=c)
+plt.xlim([min(min(exp), 0)-0.25, max(exp)+0.2])
+
+plt.title('Linear model coefficients without normalisation\n'
+          f'(base prediction: {clf_line.intercept_[0]:1.2f})')
+
+#plt.gca().invert_yaxis()
+plt.tight_layout()
+plt.show()
+```
+
+## Incomparability of Parameters {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+X_num_two_norm = (X_num_two - X_num_two.mean(axis=0)) / X_num_two.std(axis=0)
+# X_num_two_norm = sklearn.preprocessing.scale(X_num_two, axis=0)
+
+clf_line_norm = sklearn.linear_model.RidgeClassifier()
+clf_line_norm.fit(X_num_two_norm, y_num_two)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Bar plot explanation -- normalisation
+#| fig-width: 55%
+
+mpl.rc('text', usetex=True)
+exp = clf_line_norm.coef_[0, :].tolist()
+exp_c = ['r' if i < 0 else 'g' for i in exp]
+exp_n = [f'\\(x_{{{i + 1:d}}}\\): {f}' for i, f in enumerate(feature_names[2:])]
+
+fig = plt.figure(figsize=(6, 4))
+fig.patch.set_alpha(0)
+plt.barh(exp_n, exp, color=exp_c, height=.5)
+
+for i, (v, c) in enumerate(zip(exp, exp_c)):
+    if v < 0:
+        v_ = v - 0.2
+    else:
+        v_ = v + 0.05
+    plt.text(
+        v_, i, '\\(\mathbf{{{:.2f}}}\\)'.format(v), color=c)
+plt.xlim([min(min(exp), 0)-0.25, max(exp)+0.2])
+
+plt.title('Linear model coefficients with normalisation\n'
+          f'(base prediction: {clf_line_norm.intercept_[0]:1.2f})')
+
+#plt.gca().invert_yaxis()
+plt.tight_layout()
+plt.show()
+```
+
+## Incomparability of Parameters {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Individual effect without normalisation -- violin plot
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+instance_id = 42
+
+pos_name = feature_names[2:]
+pos = list(range(len(pos_name)))
+
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[0]), feature_effect[:, 0],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour,
+            label='individual effects')
+plt.scatter(np.full(feature_effect[:, 0].shape, pos[1]), feature_effect[:, 1],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour)
+
+plt.scatter(pos, feature_effect.mean(axis=0),
+            marker='X', s=200, zorder=10, alpha=0.6, c=other_colour,
+            label='mean effect')
+plt.violinplot(feature_effect, positions=pos, widths=0.8)
+
+plt.scatter(pos, feature_effect[instance_id, :],
+            marker='_', s=400, zorder=15, alpha=0.6, c='red',
+            label='explained instance')
+
+plt.xticks(pos, pos_name, rotation=0)
+
+plt.ylabel('Feature Effect')
+
+plt.legend(loc='upper right', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.title('Effect plot without normalisation')
+
+plt.show()
+```
+
+## Incomparability of Parameters {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+feature_effect_norm = X_num_two_norm * clf_line_norm.coef_
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Individual effect with normalisation -- violin plot
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+instance_id = 42
+
+pos_name = feature_names[2:]
+pos = list(range(len(pos_name)))
+
+plt.scatter(np.full(feature_effect_norm[:, 0].shape, pos[0]), feature_effect_norm[:, 0],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour,
+            label='individual effects')
+plt.scatter(np.full(feature_effect_norm[:, 0].shape, pos[1]), feature_effect_norm[:, 1],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour)
+
+plt.scatter(pos, feature_effect_norm.mean(axis=0),
+            marker='X', s=200, zorder=10, alpha=0.6, c=other_colour,
+            label='mean effect')
+plt.violinplot(feature_effect_norm, positions=pos, widths=0.8)
+
+plt.scatter(pos, feature_effect_norm[instance_id, :],
+            marker='_', s=400, zorder=15, alpha=0.6, c='red',
+            label='explained instance')
+
+plt.xticks(pos, pos_name, rotation=0)
+
+plt.ylabel('Feature Effect')
+
+plt.legend(loc='upper right', frameon=True, fancybox=True, labelcolor='black', framealpha=.5)
+
+plt.title('Effect plot with normalisation')
+
+plt.show()
+```
+
+## Incomparability of Parameters {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Feature value distribution
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 4))
+fig.patch.set_alpha(0)
+
+pos_name = feature_names[2:]
+pos = list(range(len(pos_name)))
+
+plt.scatter(np.full(X_num_two[:, 0].shape, pos[0]), X_num_two[:, 0],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour)
+plt.scatter(np.full(X_num_two[:, 0].shape, pos[1]), X_num_two[:, 1],
+            marker='o', s=50, zorder=5, alpha=0.3, c=line_colour)
+
+plt.scatter(pos, X_num_two.mean(axis=0),
+            marker='X', s=200, zorder=10, alpha=0.6, c=other_colour)
+plt.violinplot(X_num_two, positions=pos, widths=0.8)
+
+plt.xticks(pos, pos_name, rotation=0)
+
+plt.ylabel('feature value')
+
+plt.show()
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Properties
+
+## Pros &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+- Transparent from the outset due to *linearity* --
+  predictions are a linear combination of features
+- **Easy to interpret** (given relevant background knowledge)
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+- Model linearity entails *low complexity*, but also *low expressivity*,
+  hence *low predictive power*
+- *Feature interactions* / *correlations* are not accounted for
+- Poor modeling ability for *nonlinear* problems
+- *Decreased transparency* for a large number of features
+  (can be overcome with *feature selection*)
+
+## Caveats &nbsp;&nbsp;&nbsp;{{< fa skull >}}
+
+- Interpretability is tricky without *feature normalisation*
+- The interpretation based on *unitary change in feature values* ignores
+  feature correlation and may lead to *out-of-distribution instances*
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Further Considerations
+
+## Summary
+
+- (Small) linear models are transparent
+- Their interpretation should be viewed through their inherent limitations
+
+## Implementations
+
+| {{< fa brands python >}} Python          | {{< fa brands r-project >}} R     |
+|:-----------------------------------------|:----------------------------------|
+| [scikit-learn][sklearn]                  | *built in*                        |
+
+: {tbl-colwidths="[50,50]"}
+
+[sklearn]: https://scikit-learn.org/stable/modules/classes.html#module-sklearn.linear_model
+
+## Further Reading
+
+- [scikit-learn guide][sklearn-guide]
+- [*Interpretable Machine Learning* book][iml-book]
+- *Machine learning: The art and science of algorithms that make sense of data*
+  textbook [@flach2012machine]
+
+[sklearn-guide]: https://scikit-learn.org/stable/modules/linear_model.html
+[iml-book]: https://christophm.github.io/interpretable-ml-book/limo.html
+
+## Bibliography
+
+::: {#refs}
+:::
+
+## Questions
+
+<center style="font-size: 750%;">
+{{< fa clipboard-question >}}
+</center>
+
+::: aside
+[kacper.sokol@rmit.edu.au](mailto:kacper.sokol@rmit.edu.au)
+<br>
+[k.sokol@bristol.ac.uk](mailto:k.sokol@bristol.ac.uk)
+:::
+
+---
+
+&nbsp;

@@ -68,18 +68,18 @@ website:
             href: slides/1_introduction/evaluation.qmd
           - text: Data Sets and Models
             href: slides/1_introduction/data.qmd
-#      - section: Transparent Modelling
-#        contents:
-#          - text: Data Explainability
-#            href: slides/2_glass-box/data.qmd
-#          - text: Linear Model
-#            href: slides/2_glass-box/linear.qmd
+      - section: Transparent Modelling
+        contents:
+          - text: Data Explainability
+            href: slides/2_glass-box/data.qmd
+          - text: Linear Model
+            href: slides/2_glass-box/linear.qmd
 #          - text: Logistic Model
 #            href: slides/2_glass-box/logistic.qmd
 #          - text: Generalised Linear Model
 #            href: slides/2_glass-box/glm.qmd
-#          - text: Decision Tree
-#            href: slides/2_glass-box/tree.qmd
+          - text: Decision Tree
+            href: slides/2_glass-box/tree.qmd
 #          - text: Decision Rules
 #            href: slides/2_glass-box/rules.qmd
 #          - text: Neighbour-based
@@ -103,17 +103,17 @@ website:
 #      - section: Meta-Explainers
 #        contents:
 #          - text: Surrogate Explainers
-#            href: demos/5_meta/surrogates.qmd
+#            href: slides/5_meta/surrogate.qmd
 #          - text: "Surrogate Explainers: LIME"
-#            href: demos/5_meta/lime.qmd
+#            href: slides/5_meta/lime.qmd
 #          - text: Surrogate Explainers Demo
 #            href: demos/5_meta/surrogates.ipynb
 #          - text: RuleFit
-#            href: demos/5_meta/rulefit.qmd
+#            href: slides/5_meta/rulefit.qmd
 #          - text: Anchors
-#            href: demos/5_meta/anchors.qmd
+#            href: slides/5_meta/anchors.qmd
 #          - text: SHAP
-#            href: demos/5_meta/shap.qmd
+#            href: slides/5_meta/shap.qmd
 #      - section: Instance-based Explainability
 #        contents:
 #          - text: Exemplars

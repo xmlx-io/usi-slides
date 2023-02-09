@@ -14,8 +14,8 @@ __pycache__
 *.html
 _build
 _extensions
-scraps.ipynb
-scraps.qmd
+scraps*.ipynb
+scraps*.qmd
 
 # Resources
 doggo.jpg

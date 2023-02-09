@@ -828,7 +828,7 @@ How far from a decision boundary (confidence)?
 - They will include a single **piece of information** (**U11** *Parsimony*)
 - They are **one-directional** communication (**O3** *System Interaction* & **U4** *Interactiveness*)
 
-## :female_detective: &nbsp; Auditor's &nbsp; :tophat: {{< meta subs.ctd >}}
+## :female_detective: &nbsp; Auditor's &nbsp; :tophat:
 
 <br>
 

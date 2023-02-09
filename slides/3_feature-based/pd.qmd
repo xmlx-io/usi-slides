@@ -50,8 +50,10 @@ clf_cat.fit(X_cat, y_cat)
 #| echo: false
 #| output: false
 
-def update_colours():
-    colour = '#e4dbbd'
+def update_colours(dark=False):
+    solarized_dark = '#e4dbbd'
+    solarized_light = '#002b36'
+    colour = solarized_dark if dark else solarized_light
     mpl.rcParams.update({
         'text.color' : colour,
         'axes.labelcolor' : colour,
