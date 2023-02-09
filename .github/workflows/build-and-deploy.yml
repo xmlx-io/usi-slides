@@ -38,6 +38,8 @@ jobs:
       run: make build-demos
     - name: 🔧 Build Quarto Slides 📺 (slides)
       run: make build-slides
+    - name: Add web README.md
+      run: cp slides/_web_readme.md _build/README.md
     - name: Deploy (Custom Domain) 🚀
       if: github.ref == 'refs/heads/master'
       uses: JamesIves/github-pages-deploy-action@3.7.1

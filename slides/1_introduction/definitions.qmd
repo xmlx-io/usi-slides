@@ -200,11 +200,13 @@ plt.show()
 
 . . .
 
-> - **decomposability** -- appreciation of individual components
->   (input, parameterisation and computation)
->   that constitute a predictive system
-> - **algorithmic transparency** -- understanding the modelling process embodied by a predictive algorithm
-> - **simulatability** enables humans to simulate a decisive process in vivo at the level of the entire model
+- **decomposability** -- appreciation of individual components
+  (input, parameterisation and computation)
+  that constitute a predictive system
+- **algorithmic transparency** -- understanding the modelling process embodied
+  by a predictive algorithm
+- **simulatability** enables humans to simulate a decisive process in vivo
+  at the level of the entire model
 
 ## Lack of a universally accepted definition {{< meta subs.ctd >}}
 

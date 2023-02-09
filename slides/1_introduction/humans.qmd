@@ -304,9 +304,7 @@ Dialogue-based personalisation
 
 ## Summary {{< meta subs.ctd >}}
 
-<br>
-
-![]({{< meta custom-paths.figures >}}/elephant.svg){width=55% fig-align="center" fig-alt="The Blind Men and the Elephant"}
+![]({{< meta custom-paths.figures >}}/elephant.svg){width=40% fig-align="center" fig-alt="The Blind Men and the Elephant"}
 
 ::: aside
 (The Blind Men and the Elephant)

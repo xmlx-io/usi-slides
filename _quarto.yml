@@ -7,6 +7,7 @@ project:
   render:
     - slides/
     - "!slides/_template.qmd"
+    - "!slides/_web_readme.md"
     - "!README.md"
     - "!demos/"
     - "!_code/"
