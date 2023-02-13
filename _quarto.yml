@@ -87,6 +87,8 @@ website:
 #            href: slides/2_glass-box/neighbours.qmd
       - section: Feature-based Explainability
         contents:
+          - text: Permutation Feature Importance
+            href: slides/3_feature-based/pfi.qmd
           - text: Individual Conditional Expectation
             href: slides/3_feature-based/ice.qmd
           - text: Partial Dependence
@@ -95,8 +97,6 @@ website:
             href: slides/3_feature-based/me.qmd
           - text: Accumulated Local Effect
             href: slides/3_feature-based/ale.qmd
-          - text: Permutation Feature Importance
-            href: slides/3_feature-based/pfi.qmd
 #          - text: Feature Interaction
 #            href: slides/3_feature-based/fi.qmd
 #          - text: Functional Decomposition

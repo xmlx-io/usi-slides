@@ -281,6 +281,11 @@ $$
 * PFI needs a **representative** sample of data to output a meaningful
   explanation
 * The meaning of PFI is decided by the sample of data used for its generation
+
+## Selecting Data {{< meta subs.ctd >}}
+
+<br>
+
 * Some choices are
 
     - **Training Data** -- instances used to train the explained model

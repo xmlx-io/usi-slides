@@ -69,14 +69,16 @@ clf_tree_toy.fit(X_num_two, y_num_two)
 > majority class (*crisp classification*) of the training instances
 > based on which this leaf was built.
 
-<br><hr><br>
-
-> The learning algorithm chooses a feature based on its ability to decrease
-> the impurity of the data (subsets) after a split is made.
-
 :::aside
 Refer to ML textbooks for more details about decision trees [@flach2012machine].
 :::
+
+## Model Synopsis {{< meta subs.ctd >}}
+
+<br>
+
+> The learning algorithm chooses a feature based on its ability to decrease
+> the impurity of the data (subsets) after a split is made.
 
 ## Model Synopsis {{< meta subs.ctd >}}
 
@@ -297,6 +299,12 @@ tree_to_code(clf_tree, feature_names=f_, class_names=target_names)
   p_{n}(c) = \frac{1}{|X_n|} \sum_{(x, y) \in (X_n, Y_n)} \mathbb{1}_{y = c}
   $$
 
+::: {.notes}
+- $C$ is the set of all the unique labels $c$
+:::
+
+## Feature Importance {{< meta subs.ctd >}}
+
 * Regression or probabilistic classification -- *mean squared error*
   $C^{\mathit{MSE}}$
 
@@ -304,10 +312,6 @@ tree_to_code(clf_tree, feature_names=f_, class_names=target_names)
   C^{\mathit{MSE}}(n) = \frac{1}{|X_n|} \sum_{(x, y) \in (X_n, Y_n)} (y - \bar{y}_{n})^2 \\
   \bar{y}_{n} = \frac{1}{|X_n|} \sum_{(x, y) \in (X_n, Y_n)} y
   $$
-
-::: {.notes}
-- $C$ is the set of all the unique labels $c$
-:::
 
 ## Feature Importance {{< meta subs.ctd >}}
 
