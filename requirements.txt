@@ -17,4 +17,4 @@ torchvision==0.13.0
 wordcloud==1.8.2.2
 
 git+https://github.com/MaximeJumelle/ALEPython.git@dev#egg=alepython
-git+ssh://xmlx-io-concierge@github.com:xmlx-io/xml-book-code.git@turing-release
+git+ssh://xmlx-io-concierge@github.com/xmlx-io/xml-book-code.git@turing-release
