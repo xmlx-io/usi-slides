@@ -5,9 +5,10 @@ authors:
   given-names: "Kacper"
   orcid: "https://orcid.org/0000-0002-9869-5896"
 title: "eXplainable Machine Learning -- USI Course"
-version: 0.1
-date-released: 2023-03-01
+version: v1
+date-released: 2023-02-16
 url: "https://usi.xmlx.io/"
+doi: 10.5281/zenodo.7646834
 preferred-citation:
   type: slides
   title: "eXplainable Machine Learning -- USI Course"
@@ -16,4 +17,5 @@ preferred-citation:
     given-names: "Kacper"
     orcid: "https://orcid.org/0000-0002-9869-5896"
   url: "https://usi.xmlx.io/"
+  doi: 10.5281/zenodo.7646834
   year: 2023
