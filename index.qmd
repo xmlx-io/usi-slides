@@ -440,8 +440,7 @@ completing a project of choice (possibly in small groups).
 
 # Citing the Slides
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7646834.svg)](https://doi.org/10.5281/zenodo.7646834)
-
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7646834.svg)](https://doi.org/10.5281/zenodo.7646834)  
 If you happen to use these slides, please cite them as follows.
 
 ```bibtex
