@@ -177,15 +177,15 @@ subtitle: >
 
 - **GitHub Repository**
 
-    * [github.com/xmlx-io/usi-slides-source][github-quarto] (*raw slides source*)
-    * [github.com/xmlx-io/usi-slides][github-html] (*html slides source*)
+    * [github.com/xmlx-io/usi-slides][github-quarto] (*raw slides source*)
+    * [github.com/xmlx-io/usi-slides-page][github-html] (*html slides source*)
     * [github.com/xmlx-io/usi-slides-mirror][github-html-mirror] (*html slides source mirror*)
 
 [slides-xmlx]: https://usi.xmlx.io/
 [slides-github]: https://xmlx-io.github.io/usi-slides-mirror
 
-[github-quarto]: https://github.com/xmlx-io/usi-slides-source
-[github-html]: https://github.com/xmlx-io/usi-slides-mirror
+[github-quarto]: https://github.com/xmlx-io/usi-slides
+[github-html]: https://github.com/xmlx-io/usi-slides-page
 [github-html-mirror]: https://github.com/xmlx-io/usi-slides-mirror
 
 ## Resources {{< meta subs.ctd >}}

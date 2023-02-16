@@ -10,9 +10,6 @@ jobs:
       uses: actions/checkout@v3
       with:
         persist-credentials: false
-    - name: Install Test
-      run: |
-          pip install git+https://xmlx-io-concierge:${{ secrets.CONCIERGE_ACCESS_TOKEN }}@github.com/xmlx-io/xml-book-code.git@turing-release
     - name: Set up SSH keys 🔑
       uses: webfactory/ssh-agent@v0.7.0
       with:
@@ -47,6 +44,7 @@ jobs:
     - name: Install Quarto and Python dependencies 💾
       run: |
         pip install -r requirements.txt
+        # pip install git+https://xmlx-io-concierge:${{ secrets.CONCIERGE_ACCESS_TOKEN }}@github.com/xmlx-io/xml-book-code.git@turing-release
         quarto install extension --no-prompt quarto-ext/fontawesome
     - name: Get PyTorch model
       run: |
@@ -63,7 +61,7 @@ jobs:
       uses: JamesIves/github-pages-deploy-action@3.7.1
       with:
         GITHUB_TOKEN: ${{ secrets.CONCIERGE_ACCESS_TOKEN }}
-        REPOSITORY_NAME: xmlx-io/usi-slides
+        REPOSITORY_NAME: xmlx-io/usi-slides-page
         BRANCH: webpage
         FOLDER: _build
         CLEAN: true
