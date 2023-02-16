@@ -12,7 +12,7 @@ jobs:
         persist-credentials: false
     - name: Install Test
       run: |
-          pip install git+https://xmlx-io-concierge@github.com/xmlx-io/xml-book-code.git@turing-release
+          pip install git+https://xmlx-io-concierge:${{ secrets.CONCIERGE_ACCESS_TOKEN }}@github.com/xmlx-io/xml-book-code.git@turing-release
     - name: Set up SSH keys 🔑
       uses: webfactory/ssh-agent@v0.7.0
       with:
