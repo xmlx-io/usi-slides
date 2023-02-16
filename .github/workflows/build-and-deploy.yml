@@ -10,6 +10,17 @@ jobs:
       uses: actions/checkout@v3
       with:
         persist-credentials: false
+    - name: Set up SSH keys 🔑
+      uses: webfactory/ssh-agent@v0.5.4
+      with:
+        ssh-private-key: |
+          ${{ secrets.CONCIERGE_ACCESS_TOKEN }}
+    - name: Cache builds, models and data
+      uses: actions/cache@v3
+      with:
+        path: |
+          /home/runner/.cache/torch
+        key: ${{ runner.os }}-data_models
     - name: Set up Python 3.9 🐍
       uses: actions/setup-python@v4
       with:
@@ -34,6 +45,10 @@ jobs:
       run: |
         pip install -r requirements.txt
         quarto install extension --no-prompt quarto-ext/fontawesome
+    - name: Get PyTorch model
+      run: |
+        python -c 'import torchvision.models as models; models.inception_v3(pretrained=True);'
+        python -c 'import torchvision.models as models; models.alexnet(pretrained=True);'
     - name: 🔧 Build Jupyter Notebooks 🧮 (demos)
       run: make build-demos
     - name: 🔧 Build Quarto Slides 📺 (slides)

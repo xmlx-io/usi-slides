@@ -110,7 +110,7 @@ def clean_demos():
     for notebook_path in glob.glob(IPYNB_GLOB):
         with open(notebook_path) as f_read:
             nb = nbformat.read(f_read, as_version=4)
-        
+
         for cell in nb.get('cells', []):
             for id_, val_ in DISCARD_CELL_KEYS.items():
                 if id_ in cell:
