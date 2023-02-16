@@ -5,6 +5,7 @@ project:
     Peeking Inside Black Boxes
   type: website
   render:
+    - index.qmd
     - slides/
     - "!slides/_template.qmd"
     - "!slides/_web_readme.md"
@@ -16,7 +17,7 @@ project:
 #    - "**/rise.css"
   output-dir: _build
   execute-dir: file
- 
+
 toc: true
 number-sections: false
 bibliography: bibliography.bib
@@ -35,7 +36,7 @@ subs:
   ctd: "&nbsp;&nbsp;&nbsp;{{< fa arrow-alt-circle-up >}}"
 
 format:
-  revealjs: 
+  revealjs:
     from: markdown+emoji
     toc: true
     toc-depth: 1
