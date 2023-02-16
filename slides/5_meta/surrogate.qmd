@@ -1,0 +1,2461 @@
+---
+title: "Surrogate Explainers"
+subtitle: "(bLIMEy)"
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+# Handle imports and setup
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import xml_book.meta_explainers.plot_examples as plot_examples
+
+import sklearn.datasets
+import sklearn.linear_model
+import sklearn.svm
+import sklearn.tree
+
+import fatf.utils.data.augmentation as fatf_data_augmentation
+import fatf.utils.data.instance_augmentation as fatf_instance_augmentation
+import fatf.utils.data.occlusion as fatf_occlusion
+import fatf.utils.data.segmentation as fatf_segmentation
+import fatf.utils.models.processing as fatf_processing
+
+import fatf
+import scipy
+import scripts.image_classifier as imgclf
+
+from PIL import Image
+
+plt.style.use('seaborn')
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+# Get data and model ready
+# Iris -- numerical
+data_dict = sklearn.datasets.load_iris()
+feature_names, target_names = data_dict['feature_names'], data_dict['target_names']
+
+X_num, y_num = data_dict['data'], data_dict['target']
+clf_num = sklearn.svm.SVC(probability=True)
+clf_num.fit(X_num, y_num)
+
+two_features = [2, 3]
+X_num_two = X_num[:, two_features]
+clf_num_two = sklearn.svm.SVC(probability=True)
+clf_num_two.fit(X_num_two, y_num)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+def update_colours(dark=False):
+    solarized_dark = '#e4dbbd'
+    solarized_light = '#002b36'
+    colour = solarized_dark if dark else solarized_light
+    mpl.rcParams.update({
+        'text.color' : colour,
+        'axes.labelcolor' : colour,
+        'xtick.color': colour,
+        'ytick.color': colour})
+
+update_colours()
+line_colour = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+```
+
+# Method Overview
+
+## Explanation Synopsis
+
+<br>
+
+> Surrogate explainers construct an inherently interpretable model in
+> a desired -- local, cohort or global -- subspace to **approximate**
+> a more complex, black-box decision boundary [@sokol2019blimey].
+
+## Explanation Synopsis {{< meta subs.ctd >}}
+
+<br>
+
+> By using different surrogate models we can generate a wide array of
+> explanation types;
+> e.g., counterfactuals with decision trees
+> [@waa2018contrastive; @sokol2020limetree] and feature influence with
+> linear classifiers [@ribeiro2016why].
+
+## Explanation Synopsis {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Linear surrogate toy example
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+    fig, ax = plt.subplots(figsize=(8, 4))
+    fig.patch.set_alpha(0)
+    _, ax = plot_examples.local_surrogate(plot_axis=ax, surrogate_type='linear')
+fig.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Explanation Synopsis {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tree-based surrogate toy example
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+    fig, ax = plt.subplots(figsize=(8, 4))
+    fig.patch.set_alpha(0)
+    _, ax = plot_examples.local_surrogate(plot_axis=ax, surrogate_type='tree')
+plt.show()
+plt.style.use('seaborn')
+update_colours()
+```
+
+## Explanation Synopsis {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-important}
+## Interpretation of the Toy Example
+
+- The intuition communicated by the toy example may be misleading when dealing
+  with *real-life* surrogates, which often use an
+  *interpretable representation*
+- (Interpretable representations transform raw features into human-intelligible
+  concepts)
+- In this case surrogates *do not directly approximate* the behaviour of
+  the underlying black box
+- Instead, they capture its behaviour through the prism of concepts encoded by
+  the interpretable representation
+:::
+
+## Toy Example -- Tabular Data (LIME-like Linear Surrogate)
+
+```{python}
+#| echo: false
+#| output: false
+
+def build_tabular_blimey(
+        instance,
+        class_to_explain,
+        sampled_data,
+        prediction_fn,
+        discretisation,
+        is_probabilistic=False,
+        fit_intercept=True,
+        random_seed=42
+    ):
+    """
+    Composes a tabular bLIMEy surrogate explainer based on ridge classification.
+    """
+    if is_probabilistic:
+        preds = prediction_fn(sampled_data)[:, class_to_explain]
+    else:
+        preds = (prediction_fn(sampled_data) == class_to_explain).astype(np.int8)
+
+    # digitize data
+    data_dig = np.vstack([
+        np.digitize(sampled_data[:, 0], discretisation[0]),
+        np.digitize(sampled_data[:, 1], discretisation[1])
+    ]).T
+    # digitize point
+    point_dig = np.array([
+        np.digitize(instance[0], discretisation[0]),
+        np.digitize(instance[1], discretisation[1])
+    ])
+    #
+    binary_data = (data_dig == point_dig).astype(np.int8)
+    # np.unique(binary_data, axis=0)
+
+    # train ridge
+    if is_probabilistic:
+        clf = sklearn.linear_model.Ridge(
+            fit_intercept=fit_intercept, random_state=random_seed)
+    else:
+        clf = sklearn.linear_model.RidgeClassifier(
+            fit_intercept=fit_intercept, random_state=random_seed)
+    clf.fit(binary_data, preds)
+    # return coefficients
+    return clf.coef_ if is_probabilistic else clf.coef_[0]
+
+def _generate_data(data_samples_no, x_range, y_range, random_seed=42):
+    """
+    Generates a random data sample with a fixed number of instances per split.
+    """
+    x_range_n, y_range_n = len(x_range), len(y_range)
+    assert x_range_n > 2 and y_range_n > 2
+
+    y_range_ = y_range[::-1]
+    data_, i = [], 0
+    for y_ in range(y_range_n - 1):
+        for x_ in range(x_range_n - 1):
+            np.random.seed(random_seed)
+            d_ = np.random.uniform(
+                low=(x_range[x_] + 0.1, y_range_[y_ + 1] + 0.1),
+                high=(x_range[x_ + 1] - 0.1, y_range_[y_] - 0.1),
+                size=(data_samples_no[i], 2)
+            )
+            data_.append(d_)
+            i += 1
+    data_ = np.vstack(data_)
+    return data_
+
+def plot_tabular_explanation(
+        instance,
+        class_to_explain,
+        sampled_data,
+        prediction_fn,
+        discretisation,
+        feature_ranges,
+        feature_names,
+        explanation
+    ):
+    """Plots a tabular bLIMEy explanation."""
+    explanation = explanation.copy() / np.abs(explanation).sum()
+
+    fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(18, 6))
+    plt.subplots_adjust(wspace=0.05, hspace=.05)
+    fig.patch.set_alpha(0)
+    fig.suptitle('Explained class: {}'.format(class_to_explain), fontsize=18)
+
+    # plot /petal length (cm)/ vs /petal width/
+    # x_name, y_name = 'petal length (cm)', 'petal width (cm)'
+    # x_ind, y_ind = iris.feature_names.index(x_name), iris.feature_names.index(y_name)
+    x_min, x_max = feature_ranges[0][0] - .5, feature_ranges[0][1] + .5
+    y_min, y_max = feature_ranges[1][0] - .5, feature_ranges[1][1] + .5
+    #
+    plot_step = 0.02
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, plot_step),
+                         np.arange(y_min, y_max, plot_step))
+    #plt.tight_layout(h_pad=0.5, w_pad=0.5, pad=2.5)
+    Z = prediction_fn(np.c_[xx.ravel(), yy.ravel()])
+    Z = Z.reshape(xx.shape)
+    ax_l.contourf(xx, yy, Z, cmap=plt.cm.RdYlBu, alpha=.5)
+    #
+    ax_l.scatter(sampled_data[:, 0],
+                 sampled_data[:, 1],
+                 c=prediction_fn(sampled_data),
+                 cmap=plt.cm.Set1, edgecolor='k', alpha=0.5)
+    ax_l.set_xlabel(feature_names[0], fontsize=18)
+    ax_l.set_ylabel(feature_names[1], fontsize=18)
+    #
+    ax_l.set_xlim(x_min, x_max)
+    ax_l.set_ylim(y_min, y_max)
+    # plt.xticks(())
+    # plt.yticks(())
+    ax_l.scatter(instance[0], instance[1],
+                 c='yellow', marker='*', s=500, edgecolor='k')
+    ax_l.vlines(discretisation[0], -1, 10, linewidth=3)
+    ax_l.hlines(discretisation[1], -1, 10, linewidth=3)
+    #
+    ax_l.tick_params(axis='x', labelsize=18)
+    ax_l.tick_params(axis='y', labelsize=18)
+
+    x_dig_ = np.digitize(instance[0], discretisation[0])
+    x_dig_list_ = ['-inf'] + [str(i) for i in discretisation[0]] + ['+inf']
+    y_dig_ = np.digitize(instance[1], discretisation[1])
+    y_dig_list_ = ['-inf'] + [str(i) for i in discretisation[1]] + ['+inf']
+    x = ['{}\n{} < ... <= {}'.format(feature_names[0],
+                                     x_dig_list_[x_dig_],
+                                     x_dig_list_[x_dig_ + 1]),
+         '{}\n{} < ... <= {}'.format(feature_names[1],
+                                     y_dig_list_[y_dig_],
+                                     y_dig_list_[y_dig_ + 1])]
+    #
+    y = [abs(i) for i in explanation]
+    c = ['green' if i >= 0 else 'red' for i in explanation]
+
+    ax_r.set_xlim([0, 1.35])
+    ax_r.set_ylim([-.5, len(x) - .5])
+    ax_r.grid(False, axis='y')
+    ax_r.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+
+    ax_r.barh(x, y, height=.5, color=c)
+    ax_r.set_yticklabels([])
+    for i, v in enumerate(y):
+        ax_r.text(v + .02, i + .15, '{:.4f}'.format(v),
+                  fontweight='bold', fontsize=18)
+        ax_r.text(v + .02, i - .2, x[i], fontweight='bold', fontsize=18)
+
+    # highlight explained spot
+    x_dig_list_val_ = [-.5] + [i for i in discretisation[0]] + [8]
+    ax_l.axvspan(x_dig_list_val_[x_dig_], x_dig_list_val_[x_dig_ + 1],
+                 facecolor='None', hatch='/', alpha=1.0)
+    y_dig_list_val_ = [-.5] + [i for i in discretisation[1]] + [3.5]
+    ax_l.axhspan(y_dig_list_val_[y_dig_], y_dig_list_val_[y_dig_ + 1],
+                 facecolor='None', hatch='\\', alpha=1.0)
+    
+    ax_r.tick_params(axis='x', labelsize=18)
+    # ax_r.tick_params(axis='y', labelsize=18)
+
+    return fig, (ax_l, ax_r)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+instance_id = 42
+class_id = 0
+instance = X_num_two[instance_id, :]
+
+discretisation = [[2.5, 5],
+                  [0.75, 1.5]]
+min_max = [[0, 7], [0, 2.5]]
+
+sampled_data = _generate_data(
+        3*[0]+2*[50]+[0]+2*[50]+[0],
+        [min_max[0][0], *discretisation[0], min_max[0][1]],
+        [min_max[1][0], *discretisation[1], min_max[1][1]])
+
+tabular_explanation = build_tabular_blimey(
+        instance,
+        class_id,
+        sampled_data,
+        clf_num_two.predict_proba,
+        discretisation,
+        is_probabilistic=True)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: LIME-like linear surrogate explanation of tabular data
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+    # fig, ax = plt.subplots(figsize=(8, 4))
+    fig, (ax_l, ax_r) = plot_tabular_explanation(
+            instance,
+            target_names[class_id],
+            sampled_data,
+            clf_num_two.predict,
+            discretisation,
+            min_max,
+            feature_names,
+            tabular_explanation)
+    ax_l.scatter(
+        X_num_two[:, 0], X_num_two[:, 1], c=y_num,
+        zorder=0, cmap=plt.cm.RdYlBu, marker='+', s=200)
+plt.show()
+plt.style.use('seaborn')
+```
+
+## Toy Example -- Image Data (LIME-like Linear Surrogate)
+
+```{python}
+#| echo: false
+#| output: false
+
+def build_image_blimey(image,
+                       prediction_fn,
+                       explain_label_class,
+                       explanation_size=5,
+                       segments_number=13,
+                       occlusion_colour='mean',
+                       samples_number=50,
+                       batch_size=50,
+                       random_seed=42):
+    """Builds a bLIMEy surrogate image explainer."""
+    segmenter = fatf_segmentation.Slic(
+        image, n_segments=segments_number)
+    occluder = fatf_occlusion.Occlusion(
+        image, segmenter.segments, colour=occlusion_colour)
+
+    fatf.setup_random_seed(random_seed)
+    sampled_data = fatf_instance_augmentation.random_binary_sampler(
+        segmenter.segments_number, samples_number)
+
+    iter_ = fatf_processing.batch_data(
+        sampled_data,
+        batch_size=batch_size,
+        transformation_fn=occluder.occlude_segments_vectorised)
+    sampled_data_probabilities = []
+    for batch in iter_:
+        batch_predictions = prediction_fn(batch)
+        sampled_data_probabilities.append(batch_predictions)
+    sampled_data_probabilities = np.vstack(sampled_data_probabilities)
+
+    surrogates = {}
+    # Explain each class with a ridge regression
+    for class_label, class_id in explain_label_class:
+        class_probs = sampled_data_probabilities[:, class_id]
+
+        surrogate = sklearn.linear_model.Ridge(
+            alpha=1, fit_intercept=True, random_state=random_seed)
+        surrogate.fit(sampled_data, class_probs)
+
+        feature_ordering = np.flip(np.argsort(np.abs(surrogate.coef_)))
+        top_features = feature_ordering[:explanation_size]
+
+        explanation = list(zip(top_features, surrogate.coef_[top_features]))
+        
+        surrogates[class_id] = dict(
+            name=class_label,
+            model=surrogate,
+            explanation=explanation)
+
+    explainers = dict(
+        segmenter=segmenter,
+        occluder=occluder,
+        sampled_data=sampled_data,
+        sampled_data_probabilities=sampled_data_probabilities,
+        surrogates=surrogates
+    )
+    return explainers
+
+def plot_image_explanation(blimey, explained_class, show_random=False):
+    """
+    Plots a bar-plot explanation, image-colouring explanation and image
+    segmentation/random occlusion sample triplet.
+    """
+    class_id = explained_class[1]
+
+    title = blimey['surrogates'][class_id]['name']
+    assert title == explained_class[0]
+    explanation = blimey['surrogates'][class_id]['explanation']
+
+    occluder = blimey['occluder']
+    segmenter = blimey['segmenter']
+
+    fig, (ax_rr, ax_r, ax_l) = plt.subplots(1, 3, figsize=(18, 6))
+    fig.patch.set_alpha(0)
+    plt.subplots_adjust(wspace=0.20, hspace=.05)
+    plt.suptitle(f'Explained class: {title}', fontsize=18)
+
+    # Show bar-plot explanation
+    x = ['#' + str(i[0] + 1) for i in explanation[::-1]]
+    y = [abs(i[1]) for i in explanation[::-1]]
+    c = ['green' if i[1] >= 0 else 'red' for i in explanation[::-1]]
+
+    ax_l.set_xlim([0, 1.00])
+    ax_l.set_ylim([-.5, len(x) - .5])
+    ax_l.grid(False, axis='y')
+    ax_l.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    ax_l.tick_params(axis='x', labelsize=18)
+    ax_l.tick_params(axis='y', labelsize=18)
+
+    ax_l.barh(x, y, height=.5, color=c)
+    for i, v in enumerate(y):
+        ax_l.text(v + .02,
+                  i + .0,
+                  '{:.4f}'.format(v),
+                  fontweight='bold',
+                  fontsize=18)
+
+    # number and highlight top segments
+    segment_id, colour = [], []
+    for feature_id, importance in explanation:
+        segment_id.append(int(feature_id + 1))
+        colour.append('r' if importance < 0 else 'g')
+    highlighted = segmenter._stain_segments(
+        segments_subset=segment_id, colour=colour)
+    numbered = segmenter.number_segments(
+        image=highlighted, segments_subset=segment_id, colour=(255, 255, 0))
+    ax_r.imshow(numbered)
+    ax_r.grid(False)
+    ax_r.set_xticks([])
+    ax_r.set_yticks([])
+
+    # show segmentation or a random instance
+    if show_random:
+        right_most = occluder.occlude_segments(show_random)
+        right_most = segmenter.mark_boundaries(
+            image=right_most, colour=(255, 255, 0))
+    else:
+        right_most = segmenter.mark_boundaries(colour=(255, 255, 0))
+        right_most = segmenter.number_segments(
+            image=right_most, colour=(255, 0, 0))
+    ax_rr.imshow(right_most)
+    ax_rr.grid(False)
+    ax_rr.set_xticks([])
+    ax_rr.set_yticks([])
+
+    return fig, (ax_rr, ax_r, ax_l)
+```
+
+```{python}
+#| echo: false
+#| output: false
+
+doggo_img = Image.open('../../assets/resources/doggo.jpg')
+doggo_array = np.array(doggo_img)
+
+img_clf = imgclf.ImageClassifier()
+
+doggo_proba = img_clf.predict_proba([doggo_array])
+doggo_labels_3 = img_clf.proba2tuple(doggo_proba, labels_no=3)[0]
+
+explain_classes = [(i[0], i[2]) for i in doggo_labels_3]
+
+blimey_image = build_image_blimey(
+    doggo_array,
+    img_clf.predict_proba,
+    explain_classes,
+    explanation_size=5,
+    segments_number=13,
+    occlusion_colour='mean',
+    samples_number=10,
+    batch_size=50,
+    random_seed=42)
+```
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: LIME-like linear surrogate explanation of image data
+#| fig-width: 55%
+
+plt.style.use('default')
+with plt.xkcd():
+    # fig, ax = plt.subplots(figsize=(8, 4))
+    fig, (ax_rr, ax_r, ax_l) = plot_image_explanation(blimey_image, explain_classes[0])
+plt.show()
+plt.style.use('seaborn')
+```
+
+## Toy Example -- Text Data (LIME-like Linear Surrogate)
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+<style>
+div.rcorners-red {
+  border-radius: 25px;
+  background: rgba(173, 47, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-green {
+  border-radius: 25px;
+  background: rgba(115, 173, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-grey {
+  border-radius: 25px;
+  background: rgba(33, 138, 173, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+</style>
+
+<div class="rcorners-grey">
+$x^\star_0$: This
+</div>
+<div class="rcorners-green">
+$x^\star_1$: sentence
+</div>
+<div class="rcorners-grey">
+$x^\star_2$: has
+</div>
+<div class="rcorners-grey">
+$x^\star_3$: a
+</div>
+<div class="rcorners-green">
+$x^\star_4$: positive
+</div>
+<div class="rcorners-green">
+$x^\star_5$: sentiment
+</div>
+<div class="rcorners-grey">
+$x^\star_6$: ,
+</div>
+<div class="rcorners-red">
+$x^\star_7$: maybe
+</div>
+<div class="rcorners-grey">
+$x^\star_8$: .
+</div>
+
+:::
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: LIME-like linear surrogate explanation of text data
+#| fig-width: 55%
+
+explanation = [(4, .75), (5, .2), (1, .1), (7, -.05)]
+
+plt.style.use('default')
+with plt.xkcd():
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.patch.set_alpha(0)
+    x = [f'$x^\star_{i[0]:d}$' for i in explanation[::-1]]
+    y = [abs(i[1]) for i in explanation[::-1]]
+    c = ['green' if i[1] >= 0 else 'red' for i in explanation[::-1]]
+
+    ax.set_xlim([0, 1.00])
+    ax.set_ylim([-.5, len(x) - .5])
+    ax.grid(False, axis='y')
+    ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    ax.tick_params(axis='x', labelsize=18)
+    ax.tick_params(axis='y', labelsize=18)
+
+    ax.barh(x, y, height=.5, color=c)
+    for i, v in enumerate(y):
+        ax.text(v + .02,
+                i + -.12,
+                f'{"-" if explanation[::-1][i][1] < 0 else ""}{v:.2f}',
+                fontweight='bold',
+                fontsize=18)
+plt.show()
+plt.style.use('seaborn')
+```
+
+:::
+
+::::
+
+## Method Properties 
+
+<br>
+
+| *Property*           | **Surrogate Explainers**                              |
+|----------------------|-------------------------------------------------------|
+| *relation*           | post-hoc                                              |
+| *compatibility*      | model-agnostic ([semi-]supervised)                    |
+| *modelling*          | regression, crisp and probabilistic classification    |
+| *scope*              | local, cohort, global                                 |
+| *target*             | prediction, sub-space, model                          |
+
+::: {.notes}
+* **Post-hoc** -- can be retrofitted into pre-existing predictors
+* **Model-agnostic** -- work with any black box
+:::
+
+## Method Properties {{< meta subs.ctd >}}
+
+<br>
+
+| *Property*           | **Surrogate Explainers**                              |
+|----------------------|-------------------------------------------------------|
+| *data*               | text, image, tabular                                  |
+| *features*           | numerical and categorical (tabular data)              |
+| *explanation*        | *type depends on the surrogate model*                 |
+| *caveats*            | random sampling, explanation faithfulness & fidelity  |
+
+::: {.notes}
+* **Data-universal** -- work with image, tabular and text data because of
+  interpretable data representations
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# (Algorithmic) Building Blocks
+
+## Surrogate Components
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="33%"}
+
+### Interpretable Representation
+
+<center style="font-size: 750%;">
+{{< fa recycle >}}
+</center>
+
+:::
+
+::: {.column width="33%"}
+
+### Data Sampling
+
+<center style="font-size: 750%;">
+{{< fa database >}}
+</center>
+
+:::
+
+::: {.column width="33%"}
+
+### Explanation Generation
+
+<center style="font-size: 750%;">
+{{< fa lightbulb >}}
+</center>
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}}
+
+<br>
+
+> If desired, data are transformed from their original domain into a
+> human-intelligible representation, which is used to communicate
+> the explanations.
+> This step is required for image and text data,
+> but optional -- albeit helpful -- for tabular data.
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+
+<br>
+
+> Interpretable representations tend to be **binary spaces** encoding presence
+> (*fact* denoted by $1$) or absence (*foil* denoted by $0$) of certain
+> human-understandable concepts generated for a data point
+> selected to be expalined.
+
+<br>
+
+::: {.callout-important}
+### Operationalisation of Interpretable Representations
+
+Specifying the foil of an interpretable representation -- i.e., the operation
+linked to **switching off** a component of the IR by setting its binary value
+to $0$ -- may not always be straightforward, practical or
+even (computationally) feasible in certain domains,
+requiring a problem-specific information removal proxy.
+:::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="33%"}
+
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}}
+
+<br>
+
+**Discretisation** of continuous features followed by **binarisation**.
+
+:::
+
+::: {.column width="33%"}
+
+### Image &nbsp;&nbsp;&nbsp;{{< fa image >}}
+
+<br>
+
+**Super-pixel segmentation**.
+
+:::
+
+::: {.column width="33%"}
+
+### Text &nbsp;&nbsp;&nbsp;{{< fa file-lines >}}
+
+<br>
+
+**Tokenisation** such as bag-of-words representation.
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Text &nbsp;&nbsp;&nbsp;{{< fa file-lines >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+<style>
+div.rcorners-red {
+  border-radius: 25px;
+  background: rgba(173, 47, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-green {
+  border-radius: 25px;
+  background: rgba(115, 173, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-grey {
+  border-radius: 25px;
+  background: rgba(33, 138, 173, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+</style>
+
+<div class="rcorners-grey">
+$x^\star_0$: This
+</div>
+<div class="rcorners-grey">
+$x^\star_1$: sentence
+</div>
+<div class="rcorners-grey">
+$x^\star_2$: has
+</div>
+<div class="rcorners-grey">
+$x^\star_3$: a
+</div>
+<div class="rcorners-grey">
+$x^\star_4$: positive
+</div>
+<div class="rcorners-grey">
+$x^\star_5$: sentiment
+</div>
+<div class="rcorners-grey">
+$x^\star_6$: ,
+</div>
+<div class="rcorners-grey">
+$x^\star_7$: maybe
+</div>
+<div class="rcorners-grey">
+$x^\star_8$: .
+</div>
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Text &nbsp;&nbsp;&nbsp;{{< fa file-lines >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 0, 0, 1, 0, 0, 1, 0, 1]
+$$
+
+:::
+
+::: {.column width="50%"}
+
+<style>
+div.rcorners-red {
+  border-radius: 25px;
+  background: rgba(173, 47, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-green {
+  border-radius: 25px;
+  background: rgba(115, 173, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-grey {
+  border-radius: 25px;
+  background: rgba(33, 138, 173, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+</style>
+
+<div class="rcorners-grey">
+$x^\star_0$: This
+</div>
+<div class="rcorners-grey">
+$x^\star_1$: &nbsp;
+</div>
+<div class="rcorners-grey">
+$x^\star_2$: &nbsp;
+</div>
+<div class="rcorners-grey">
+$x^\star_3$: a
+</div>
+<div class="rcorners-grey">
+$x^\star_4$: &nbsp;
+</div>
+<div class="rcorners-grey">
+$x^\star_5$: &nbsp;
+</div>
+<div class="rcorners-grey">
+$x^\star_6$: ,
+</div>
+<div class="rcorners-grey">
+$x^\star_7$: &nbsp;
+</div>
+<div class="rcorners-grey">
+$x^\star_8$: .
+</div>
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Text &nbsp;&nbsp;&nbsp;{{< fa file-lines >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+<style>
+div.rcorners-red {
+  border-radius: 25px;
+  background: rgba(173, 47, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-green {
+  border-radius: 25px;
+  background: rgba(115, 173, 33, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+div.rcorners-grey {
+  border-radius: 25px;
+  background: rgba(33, 138, 173, 0.25);
+  padding: 10px; 
+  width: fit-content;
+  float: left;
+}
+</style>
+
+<div class="rcorners-grey">
+This
+</div>
+<div class="rcorners-grey">
+$x^\star_0$: sentence
+</div>
+<div class="rcorners-grey">
+has
+</div>
+<div class="rcorners-grey">
+a
+</div>
+<div class="rcorners-grey">
+$x^\star_1$: positive
+</div>
+<div class="rcorners-grey">
+$x^\star_1$: sentiment
+</div>
+<div class="rcorners-grey">
+,
+</div>
+<div class="rcorners-grey">
+$x^\star_2$: maybe
+</div>
+<div class="rcorners-grey">
+.
+</div>
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 1, 1]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Image &nbsp;&nbsp;&nbsp;{{< fa image >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+segmenter = fatf_segmentation.Slic(doggo_array, n_segments=13)
+occluder = fatf_occlusion.Occlusion(doggo_array, segmenter.segments, colour='black')
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image interpretable representation -- segmentation
+#| fig-width: 55%
+
+img_bound = segmenter.mark_boundaries(colour=(255, 0, 0))
+img_bound_numbered = segmenter.number_segments(image=img_bound)
+ax = plt.imshow(img_bound_numbered)
+ax.get_figure().patch.set_alpha(0)
+plt.grid(False)
+plt.xticks([])
+plt.yticks([])
+plt.show()
+```
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Image &nbsp;&nbsp;&nbsp;{{< fa image >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1]
+$$
+
+:::
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image interpretable representation -- image occlusion
+#| fig-width: 55%
+
+occ_ = np.array([1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1])
+img_occ = occluder.occlude_segments_vectorised(occ_)
+
+ax = plt.imshow(img_occ)
+ax.get_figure().patch.set_alpha(0)
+plt.grid(False)
+plt.xticks([])
+plt.yticks([])
+plt.show()
+```
+
+:::
+
+::::
+
+```{python}
+#| echo: false
+#| output: false
+
+segmenter1 = fatf_segmentation.Slic(doggo_array, n_segments=13)
+segmenter1.merge_segments([[1, 10], [2, 3, 8, 9, 11, 13, 6, 7], [4, 5, 12]], inplace=True)
+occluder1 = fatf_occlusion.Occlusion(doggo_array, segmenter1.segments, colour='black')
+segmenter2 = fatf_segmentation.Slic(doggo_array, n_segments=13)
+segmenter2.merge_segments([[1, 10], [2, 3, 8, 9, 11, 13, 6, 7], [4, 5, 12]], inplace=True)
+segmenter2.merge_segments([1, 3], inplace=True)
+occluder2 = fatf_occlusion.Occlusion(doggo_array, segmenter2.segments, colour='black')
+```
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Image &nbsp;&nbsp;&nbsp;{{< fa image >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image interpretable representation -- bespoke segmentation 1
+#| fig-width: 55%
+
+img_bound = segmenter1.mark_boundaries(colour=(255, 0, 0))
+img_bound_numbered = segmenter1.number_segments(image=img_bound)
+ax = plt.imshow(img_bound_numbered)
+ax.get_figure().patch.set_alpha(0)
+plt.grid(False)
+plt.xticks([])
+plt.yticks([])
+plt.show()
+```
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 1, 1, 1]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Image &nbsp;&nbsp;&nbsp;{{< fa image >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image interpretable representation -- bespoke segmentation 2
+#| fig-width: 55%
+
+img_bound = segmenter2.mark_boundaries(colour=(255, 0, 0))
+img_bound_numbered = segmenter2.number_segments(image=img_bound)
+ax = plt.imshow(img_bound_numbered)
+ax.get_figure().patch.set_alpha(0)
+plt.grid(False)
+plt.xticks([])
+plt.yticks([])
+plt.show()
+```
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 1, 1]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}}
+
+```{python}
+#| echo: false
+#| output: false
+
+fontsize = 12
+anot_x = '''$x_1^\prime={xp:d}$'''
+#        '''\(x^\prime={xp:d}\)\n\(\hat{{x}}=({xh1:d},{xh2:d},{xh3:d},{xh4:d})\)'''
+anot_y = '''$x_2^\prime={yp:d}$'''
+#        '''\(y^\prime={yp:d}\)\n\(\hat{{y}}=({yh1:d},{yh2:d})\)'''
+params = dict(
+    xycoords='axes fraction', 
+    fontsize=fontsize * 1.5,
+    ma='center',
+    bbox=dict(boxstyle='round4', fc='white', ec='black')
+)
+params_x_top = dict(
+    arrowprops=dict(arrowstyle='-[, widthB=3.85, lengthB=.5', lw=3.0),
+    ha='center',
+    va='top'
+)
+params_y = dict(
+    arrowprops=dict(arrowstyle='-[, widthB=1.85, lengthB=.5', lw=3.0),
+    ha='right',
+    va='center'
+)
+
+anot_x_ = '''$x_1^\star={xp:d}$'''
+anot_y_ = '''$x_2^\star={yp:d}$'''
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular interpretable representation -- discretisation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+ax.scatter(X_num_two[:, 0],
+           X_num_two[:, 1],
+           c=y_num,
+           cmap=plt.cm.Set1, edgecolor='k', alpha=0.5)
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+ax.scatter(instance[0], instance[1],
+           c='yellow', marker='*', s=500, edgecolor='k')
+ax.vlines(discretisation[0], 0, 3, linewidth=3)
+ax.hlines(discretisation[1], 0, 7, linewidth=3)
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+# x-axis
+ax.annotate(anot_x.format(xp=0),
+            xy=(0.17857143, 0 - (.12 * 3 / 2)),
+            xytext=(0.17857143, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+ax.annotate(anot_x.format(xp=1),
+            xy=(0.53571429, 0 - (.12 * 3 / 2)),
+            xytext=(0.53571429, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+ax.annotate(anot_x.format(xp=2),
+            xy=(6/7, 0 - (.12 * 3 / 2)),
+            xytext=(6/7, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+
+# y-axis
+ax.annotate(anot_y.format(yp=0),
+            xy=(-0.16, 0.13),
+            xytext=(-.20, 0.13),
+            **params, **params_y)
+ax.annotate(anot_y.format(yp=1),
+            xy=(-0.16, .38),
+            xytext=(-.20, .38),
+            **params, **params_y)
+ax.annotate(anot_y.format(yp=2),
+            xy=(-0.16, .75),
+            xytext=(-.20, .75),
+            **params, **params_y)
+
+plt.show()
+```
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x = [1.3, 0.2]
+$$
+
+$$
+x^\prime = [0, 0]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular interpretable representation -- binarisation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+ax.scatter(X_num_two[:, 0],
+           X_num_two[:, 1],
+           c=y_num,
+           cmap=plt.cm.Set1, edgecolor='k', alpha=0.5)
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+ax.scatter(instance[0], instance[1],
+           c='yellow', marker='*', s=500, edgecolor='k')
+ax.vlines(discretisation[0][0], 0, 3, linewidth=3)
+ax.hlines(discretisation[1][0], 0, 7, linewidth=3)
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+# x-axis
+ax.annotate(anot_x_.format(xp=1),
+            xy=(0.17857143, 0 - (.12 * 3 / 2)),
+            xytext=(0.17857143, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+ax.annotate(anot_x_.format(xp=0),
+            xy=(0.7, 0 - (.12 * 3 / 2)),
+            xytext=(0.7, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+
+# y-axis
+ax.annotate(anot_y_.format(yp=1),
+            xy=(-0.16, 0.13),
+            xytext=(-.20, 0.13),
+            **params, **params_y)
+ax.annotate(anot_y_.format(yp=0),
+            xy=(-0.16, .65),
+            xytext=(-.20, .65),
+            **params, **params_y)
+
+plt.show()
+```
+
+:::
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 1]
+$$
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 0]
+$$
+
+:::
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular interpretable representation -- binarisation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+ax.scatter(X_num_two[:, 0],
+           X_num_two[:, 1],
+           c=y_num,
+           cmap=plt.cm.Set1, edgecolor='k', alpha=0.5)
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+ax.scatter(instance[0], instance[1],
+           c='yellow', marker='*', s=500, edgecolor='k')
+ax.vlines(discretisation[0][0], 0, 3, linewidth=3)
+ax.hlines(discretisation[1][0], 0, 7, linewidth=3)
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+# x-axis
+ax.annotate(anot_x_.format(xp=1),
+            xy=(0.17857143, 0 - (.12 * 3 / 2)),
+            xytext=(0.17857143, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+ax.annotate(anot_x_.format(xp=0),
+            xy=(0.7, 0 - (.12 * 3 / 2)),
+            xytext=(0.7, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+
+# y-axis
+ax.annotate(anot_y_.format(yp=1),
+            xy=(-0.16, 0.13),
+            xytext=(-.20, 0.13),
+            **params, **params_y)
+ax.annotate(anot_y_.format(yp=0),
+            xy=(-0.16, .65),
+            xytext=(-.20, .65),
+            **params, **params_y)
+
+# highlight explained spot
+ax.axvspan(0, 2.5,
+           facecolor='None', hatch='/', alpha=1.0)
+ax.axhspan(0.75, 3,
+           facecolor='None', hatch='\\', alpha=1.0)
+
+plt.show()
+```
+
+:::
+
+::::
+
+## Surrogate Components: Interpretable Representation &nbsp;&nbsp;&nbsp;{{< fa recycle >}} {{< meta subs.ctd >}}
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}} {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+$$
+x^\star = [1, 0] \;\;\;\; \longrightarrow \;\;\;\; x = [?, ?]
+$$
+
+:::
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular interpretable representation -- binarisation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+ax.scatter(X_num_two[:, 0],
+           X_num_two[:, 1],
+           c=y_num,
+           cmap=plt.cm.Set1, edgecolor='k', alpha=0.5)
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+ax.scatter(instance[0], instance[1],
+           c='yellow', marker='*', s=500, edgecolor='k')
+ax.vlines(discretisation[0][0], 0, 3, linewidth=3)
+ax.hlines(discretisation[1][0], 0, 7, linewidth=3)
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+# x-axis
+ax.annotate(anot_x_.format(xp=1),
+            xy=(0.17857143, 0 - (.12 * 3 / 2)),
+            xytext=(0.17857143, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+ax.annotate(anot_x_.format(xp=0),
+            xy=(0.7, 0 - (.12 * 3 / 2)),
+            xytext=(0.7, 0 - (.15 * 3 / 2)),
+            **params, **params_x_top)
+
+# y-axis
+ax.annotate(anot_y_.format(yp=1),
+            xy=(-0.16, 0.13),
+            xytext=(-.20, 0.13),
+            **params, **params_y)
+ax.annotate(anot_y_.format(yp=0),
+            xy=(-0.16, .65),
+            xytext=(-.20, .65),
+            **params, **params_y)
+
+# highlight sampling area
+x = np.arange(-.5, 2.5, 0.01)
+y = np.arange(.75, 3.5, 0.01)
+X, Y = np.meshgrid(x, y)
+pos = np.dstack((X, Y))
+Z = scipy.stats.multivariate_normal([2.5, .75], [[4, 3], [2, 3]])
+plt.contourf(X, Y, Z.pdf(pos), cmap=plt.get_cmap('Greys'), alpha=.4)
+
+plt.show()
+```
+
+:::
+
+::::
+
+## Surrogate Components: Data Sampling &nbsp;&nbsp;&nbsp;{{< fa database >}}
+
+<br>
+
+> Data sampling allows to capture the behaviour of a predictive model in a
+> desired subspace.
+> To this end, a data sample is generated and predicted by the explained model,
+> offering a granular insight into its decision surface.
+
+## Surrogate Components: Data Sampling &nbsp;&nbsp;&nbsp;{{< fa database >}} {{< meta subs.ctd >}}
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+### Original Domain
+
+<br>
+
+* Tabular data
+
+:::
+
+::: {.column width="50%"}
+
+### Interpretable Representation
+
+<br>
+
+* Tabular data (implicitly *global*)
+* Image data (implicitly *local*)
+* Text data (implicitly *local*)
+
+:::
+
+::::
+
+::: {.notes}
+* With the interpretable representation, a **complete sample** can be generated
+  to improve **quality** of the surrogate
+:::
+
+```{python}
+#| echo: false
+#| output: false
+
+sampler_normal = fatf_data_augmentation.NormalSampling(X_num_two)
+fatf.setup_random_seed(42)
+sample_normal = sampler_normal.sample(instance)
+
+sampler_mixup = fatf_data_augmentation.Mixup(X_num_two, y_num)
+fatf.setup_random_seed(42)
+sample_mixup = sampler_mixup.sample(instance)
+```
+
+## Surrogate Components: Data Sampling &nbsp;&nbsp;&nbsp;{{< fa database >}} {{< meta subs.ctd >}}
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular sampling -- normal
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+ax.scatter(X_num_two[:, 0],
+           X_num_two[:, 1],
+           c=y_num,
+           cmap=plt.cm.Set1, edgecolor='k', alpha=0.3)
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+ax.scatter(instance[0], instance[1],
+           c='yellow', marker='*', s=500, edgecolor='k')
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+ax.scatter(sample_normal[:, 0],
+           sample_normal[:, 1],
+           c='green', edgecolor='k', alpha=0.5)
+
+plt.show()
+```
+
+## Surrogate Components: Data Sampling &nbsp;&nbsp;&nbsp;{{< fa database >}} {{< meta subs.ctd >}}
+### Tabular &nbsp;&nbsp;&nbsp;{{< fa table >}} {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular sampling -- mixup
+#| fig-width: 55%
+
+fig, ax = plt.subplots(figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+ax.scatter(X_num_two[:, 0],
+           X_num_two[:, 1],
+           c=y_num,
+           cmap=plt.cm.Set1, edgecolor='k', alpha=0.3)
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+ax.scatter(instance[0], instance[1],
+           c='yellow', marker='*', s=500, edgecolor='k')
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+ax.scatter(sample_mixup[:, 0],
+           sample_mixup[:, 1],
+           c='green', edgecolor='k', alpha=0.5)
+
+plt.show()
+```
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}}
+
+<br>
+
+> Explanatory insights are extracted from an inherently transparent model
+> fitted to the sampled data (in interpretable representation), using their
+> black-box predictions as the target.
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+
+<br>
+
+> Additional processing steps can be applied to tune and tweak
+> the surrogate model, hence the explanation.
+> For example, the sample can be **weighted** based on its proximity to
+> the explained instance when dealing with local explanations;
+> and a **feature selection** procedure may be used to introduce sparsity,
+> therefore improve accessibility and comprehensibility of explanatory insights.
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+### Sample Weighting
+
+:::: {.columns}
+
+::: {.column width="33%"}
+
+#### Data Domain
+
+* Original domain
+* (Intermediate) discrete domain (tabular data only)
+* Binary interpretable representation
+
+:::
+
+::: {.column width="33%"}
+
+#### Distance Metric
+
+* Hamming: <br> $L(a, b) = \frac{1}{N} \sum_{i = 1}^{N} \mathbb{1} (a_i \neq b_i)$
+* Euclidean: <br> $L(a, b) = \sqrt{\sum_{i = 1}^{N} (b_i - a_i)^2}$
+* Cosine: <br> $L(a, b) = \frac{a \cdot b}{ \sqrt{a \cdot a} \sqrt{b \cdot b}}$
+
+:::
+
+::: {.column width="33%"}
+
+#### Kernel
+
+* Exponential: <br> $k(d) = \sqrt{exp\left(-\frac{d^2}{w^2}\right)}$
+
+:::
+
+::::
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+### Sample Weighting {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Distance comparison
+#| fig-width: 55%
+
+dists = ['hamming', 'euclidean', 'cosine']
+
+fig, axs = plt.subplots(1, 3, figsize=(24, 6))
+fig.patch.set_alpha(0)
+
+for ax, dist in zip(axs, dists):
+    ax.scatter(X_num_two[:, 0],
+            X_num_two[:, 1],
+            c=y_num,
+            cmap=plt.cm.Set1, edgecolor='k', alpha=0.3)
+    if dist == 'hamming':
+        ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+        ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+    ax.scatter(instance[0], instance[1],
+            c='yellow', marker='*', s=500, edgecolor='k')
+    #
+    ax.tick_params(axis='x', labelsize=18)
+    ax.tick_params(axis='y', labelsize=18)
+
+    ax.set_title(dist, fontsize=18)
+
+    scale_ = scipy.spatial.distance.cdist([instance], sample_normal, metric=dist)
+    ax.scatter(sample_normal[:, 0],
+            sample_normal[:, 1],
+            s=50*scale_[0],
+            c='green', edgecolor='k', alpha=0.5)
+
+plt.show()
+```
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+### Sample Weighting {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Kernelised distance comparison
+#| fig-width: 55%
+
+dists = ['hamming', 'euclidean', 'cosine']
+
+fig, axs = plt.subplots(1, 3, figsize=(24, 6))
+fig.patch.set_alpha(0)
+
+for ax, dist in zip(axs, dists):
+    ax.scatter(X_num_two[:, 0],
+            X_num_two[:, 1],
+            c=y_num,
+            cmap=plt.cm.Set1, edgecolor='k', alpha=0.3)
+    if dist == 'hamming':
+        ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+        ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+
+    ax.scatter(instance[0], instance[1],
+            c='yellow', marker='*', s=500, edgecolor='k')
+    #
+    ax.tick_params(axis='x', labelsize=18)
+    ax.tick_params(axis='y', labelsize=18)
+
+    ax.set_title(dist, fontsize=18)
+
+    scale_ = scipy.spatial.distance.cdist([instance], sample_normal, metric=dist)
+    scale_ = -1 * np.square(scale_) / 0.25**2
+    scale_ = np.sqrt(np.exp(scale_))
+    ax.scatter(sample_normal[:, 0],
+            sample_normal[:, 1],
+            s=500*scale_[0],
+            c='green', edgecolor='k', alpha=0.5)
+
+plt.show()
+```
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+### Target Type
+
+:::: {.columns}
+
+::: {.column width="33%"}
+
+#### Crisp Classification
+
+- *Explicit* one-vs-rest: <br> $A$ and $\neg A$
+
+:::
+
+::: {.column width="33%"}
+
+#### Probabilistic Classification
+
+- *Implicit* one-vs-rest: <br> $\mathbb{P}(A)$ and $1 - \mathbb{P}(A) = \mathbb{P}(\neg A)$
+
+:::
+
+::: {.column width="33%"}
+
+#### Regression
+
+- Numerical output: <br> $f(x)$
+
+:::
+
+::::
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+### Modelling Multiple Classes
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+#### Single Target
+
+Independent surrogate models explaining one class at a time:
+
+- $\mathbb{P}(A)$ and $\mathbb{P}(\neg A)$
+- $\mathbb{P}(B)$ and $\mathbb{P}(\neg B)$
+- etc.
+
+:::
+
+::: {.column width="50%"}
+
+#### Multiple Targets
+
+A single model explaining a selected subset of classes:
+
+- $\mathbb{P}(A)$
+- $\mathbb{P}(B)$
+- $\mathbb{P}(C)$
+- $\mathbb{P}\left(\neg (A \lor B \lor C)\right)$
+
+:::
+
+::::
+
+::: {.notes}
+* This is especially important for **probabilistic models**
+* Consider two examples:
+    - $\mathbb{P}(A) = 0.9$, $\mathbb{P}(B) = 0.05$, $\mathbb{P}(C) = 0.05$
+    - $\mathbb{P}(A) = 0.6$, $\mathbb{P}(B) = 0.3$, $\mathbb{P}(C) = 0.1$
+:::
+
+## Surrogate Components: Explanation Generation &nbsp;&nbsp;&nbsp;{{< fa lightbulb >}} {{< meta subs.ctd >}}
+### Surrogate Model Type
+
+<br>
+
+- Lienar
+- Tree-based
+- Rule-based
+- etc.
+
+## Computing Surrogates
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Surrogate framework mock-up
+#| fig-width: 55%
+
+figsize_all = (2 * 5, 2 * 3)
+fig, ax = plt.subplots(2, 2, figsize=figsize_all)
+fig.patch.set_alpha(0)
+
+figsize_piece = (5, 3)
+title_loc = -0.11
+fig1, ax1 = plot_examples.local_linear_surrogate_advanced(
+    plot_axis=ax[0, 0], figsize=figsize_piece,
+    plot_line=False, scale_points=False, plot_sample=False)
+fig2, ax2 = plot_examples.local_linear_surrogate_advanced(
+    plot_axis=ax[0, 1], figsize=figsize_piece, plot_line=False, scale_points=False)
+fig3, ax3 = plot_examples.local_linear_surrogate_advanced(
+    plot_axis=ax[1, 0], figsize=figsize_piece, plot_line=False, scale_points=True)
+fig4, ax4 = plot_examples.local_linear_surrogate_advanced(
+    plot_axis=ax[1, 1], figsize=figsize_piece, plot_line=True, scale_points=True)
+
+plt.show()
+```
+
+## Computing Surrogates {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-note}
+## Input
+
+1. Select an **instance to be explained** (local surrogate)
+2. Select the **explanation target**
+
+    * crisp classifiers &rarr; one-vs-rest or a subset of classes-vs-rest
+    * probabilistic classifiers &rarr; (probabilities of) one or multiple classes
+    * regressors &rarr; numerical values
+:::
+
+## Computing Surrogates {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-caution}
+## Parameters
+
+1. Define the **interpretable representation**
+    * text &rarr; pre-processing and tokenisation
+    * image &rarr; occlusion proxy, e.g., segmentation granularity and
+      occlusion colour
+    * tabular &rarr; discretisation of numerical features and
+      grouping of categorical attributes
+:::
+
+## Computing Surrogates {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-caution}
+## Parameters
+
+2. Specify sampling strategy
+    * original domain (tabular data) &rarr; number of instances and
+      sampling objective (scope and target)
+    * transformed domain (all data domains) &rarr; completeness of the sample
+
+3. Sample weighting &rarr; data domain, distance metric, kernel type
+4. Feature selection (tabular data) -- feature selection strategy
+5. Type of the surrogate model and its parameterisation
+:::
+
+## Computing Surrogates {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure
+
+1. **Transform** the explained instance into the interpretable representation
+2. **Sample** data around the explained instance with a given *scope*
+3. **Predict** the sampled data using the black box
+   (transform into the original representation if sampled in
+   the interpretable domain)
+:::
+
+## Computing Surrogates {{< meta subs.ctd >}}
+
+<br>
+
+::: {.callout-tip}
+## Procedure {{< meta subs.ctd >}}
+
+4. Calculate **similarities** between the explained instance and sampled data
+   by **kernelising distances**
+5. Optionally, **reduce dimensionality** of the interpretable domain
+6. **Fit a surrogate model** to the (subset of) interpretable feature and
+   black-box predictions of the desired target(s)
+7. **Extract** the desired **explanation** from the surrogate model
+:::
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Theoretical Underpinning
+
+::: {.hidden}
+$$
+\def\IR{\mathit{IR}}
+\def\argmin{\mathop{\operatorname{arg\,min}}\limits}
+\def\argmax{\mathop{\operatorname{arg\,max}}\limits}
+$$
+:::
+
+## Formulation: Optimisation Objective &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+\mathcal{O}(\mathcal{G}; \; f) =
+  \argmin_{g \in \mathcal{G}}
+  \overbrace{\Omega(g)}^{\text{complexity}} \; + \;\;\;
+  \overbrace{\mathcal{L}(f, g)}^{\text{fidelity loss}}
+$$
+
+## Formulation: Complexity &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+\Omega(g) = \frac{\sum_{\theta \in \Theta_g} {\Large\mathbb{1}} \left(\theta\right)}{|\Theta_g|}
+$$
+
+<br>
+
+$$
+\Omega(g; \; d) = \frac{\text{depth}(g)}{d}
+  \;\;\;\;\text{or}\;\;\;\;
+  \Omega(g; \; d) = \frac{\text{width}(g)}{2^d}
+$$
+
+## Formulation: Numerical Fidelity (One Class) &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+\mathcal{L}(f, g ; \; \mathring{x}, X^\prime, \mathring{c}) =
+  \sum_{x^\prime \in X^\prime} \;
+  \underbrace{\omega\left( \IR(\mathring{x}), x^\prime \right)}_{\text{weighting factor}}
+  \; \times \;
+  \underbrace{\left(f_\mathring{c}\left(\IR^{-1}(x^\prime)\right) - g(x^\prime)\right)^{2}}_{\text{individual loss}}
+$$
+
+<br>
+
+$$
+\omega\left(\IR(\mathring{x}), x^\prime \right) = k\left(L\left(\IR(\mathring{x}), x^\prime\right)\right)
+$$
+
+$$
+\omega\left( \mathring{x}, x \right) = k\left(L\left(\mathring{x}, x\right)\right)
+$$
+
+## Formulation: Crisp Classification Fidelity (One Class) &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+\mathcal{L}(f, g ; \; \mathring{x}, X^\prime, \mathring{c}) =
+  \sum_{x^\prime \in X^\prime} \;
+  \omega\left( \IR(\mathring{x}), x^\prime \right)
+  \; \times \;
+  \underline{ {\Large\mathbb{1}} \left(f_\mathring{c}\left(\IR^{-1}(x^\prime)\right), \; g(x^\prime)\right)}
+$$
+
+<br>
+
+$$
+\begin{split}
+f_{\mathring{c}}(x) =
+\begin{cases}
+  1, & \text{if} \;\; f(x) \equiv \mathring{c}\\
+  0, & \text{if} \;\; f(x) \not\equiv \mathring{c}
+\end{cases} \text{ .}
+\end{split}
+$$
+
+$$
+\begin{split}
+{\Large\mathbb{1}}\left(f_{\mathring{c}}(x), g(x^\prime)\right) =
+\begin{cases}
+  1, & \text{if} \;\; f_{\mathring{c}}(x) \equiv g(x^\prime)\\
+  0, & \text{if} \;\; f_{\mathring{c}}(x) \not\equiv g(x^\prime)
+\end{cases} \text{ ,}
+\end{split}
+$$
+
+## Formulation: Crisp Classification Fidelity (One Class) &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}} {{< meta subs.ctd >}}
+
+<br>
+
+| $f(x)$ | $f_\beta(x)$ | $g(x^\prime)$ | ${\Large\mathbb{1}}$ |
+|----|----|----|----|
+| $\alpha$ | $0$ | $1$ | $0$ |
+| $\beta$  | $1$ | $0$ | $0$ |
+| $\gamma$ | $0$ | $0$ | $1$ |
+| $\beta$  | $1$ | $1$ | $1$ |
+| $\alpha$ | $0$ | $0$ | $1$ |
+
+## Formulation: Crisp Classification Fidelity (Multiple Class) &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+\mathcal{L}(f, g ; \; \mathring{x}, X^\prime, \mathring{C}) =
+  \sum_{x^\prime \in X^\prime}
+  %\left(
+    \omega( \IR(\mathring{x}) , x^\prime )
+    \; \times \;
+    \underline{
+      \frac{1}{|\mathring{C}|}
+      \sum_{\mathring{c} \in \mathring{C}}
+      {\Large\mathbb{1}}
+      \left(
+        f_\mathring{c}\left(\IR^{-1}(x^\prime)\right), \;
+        g_\mathring{c}(x^\prime)
+      \right)
+    }
+  %\right)
+$$
+
+## Formulation: Numerical Fidelity (Multiple Class) &nbsp;&nbsp;&nbsp;{{< fa square-root-alt >}}
+
+<br>
+
+$$
+\mathcal{L}(f, g ; \; \mathring{x}, X^\prime, \mathring{C}) =
+  \sum_{x^\prime \in X^\prime}
+  %\left(
+    \omega( \IR(\mathring{x}) , x^\prime )
+    \; \times \;
+    \underline{
+      \frac{1}{2}
+      \sum_{\mathring{c} \in \mathring{C}}
+      \left(
+          f_\mathring{c}\left(\IR^{-1}(x^\prime)\right) -
+          g_\mathring{c}(x^\prime)
+      \right)^2
+    }
+  %\right)
+$$
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Variants #
+
+---
+
+> As many as you wish to construct.
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Evaluation #
+
+## Fidelity-based
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Fidelity-based evaluation
+#| fig-width: 55%
+
+figsize_all = (2 * 5, 2 * 3)
+fig, ax = plt.subplots(2, 2, figsize=figsize_all)
+fig.patch.set_alpha(0)
+
+figsize_piece = (5, 3)
+title_loc = -0.11
+fig1, ax1 = plot_examples.local_linear_surrogate(
+    plot_axis=ax[0, 0], figsize=figsize_piece, eval='inst-loc')
+ax1.set_title('Data subspace (data local)', y=title_loc)
+fig2, ax2 = plot_examples.local_linear_surrogate(
+    plot_axis=ax[0, 1], figsize=figsize_piece, eval='inst-glob')
+ax2.set_title('Full data space (data global)', y=title_loc)
+fig3, ax3 = plot_examples.local_linear_surrogate(
+    plot_axis=ax[1, 0], figsize=figsize_piece, eval='mod-loc')
+ax3.set_title('Surrogate decision boundary (model local)', y=title_loc)
+fig4, ax4 = plot_examples.local_linear_surrogate(
+    plot_axis=ax[1, 1], figsize=figsize_piece, eval='mod-glob')
+ax4.set_title('Black-box decision boundary (model global)', y=title_loc)
+
+plt.show()
+```
+
+## Tabular Data: Interpretable Representation
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular data interpretable representation evaluation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+x_min, x_max = min_max[0][0] - .5, min_max[0][1] + .5
+y_min, y_max = min_max[1][0] - .5, min_max[1][1] + .5
+#
+plot_step = 0.02
+xx, yy = np.meshgrid(np.arange(x_min, x_max, plot_step),
+                     np.arange(y_min, y_max, plot_step))
+#plt.tight_layout(h_pad=0.5, w_pad=0.5, pad=2.5)
+Z = clf_num_two.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = Z.reshape(xx.shape)
+ax.contourf(xx, yy, Z, cmap=plt.cm.RdYlBu, alpha=.5)
+#
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+#
+ax.set_xlim(x_min, x_max)
+ax.set_ylim(y_min, y_max)
+# plt.xticks(())
+# plt.yticks(())
+ax.scatter(instance[0], instance[1],
+             c='yellow', marker='*', s=500, edgecolor='k')
+ax.vlines(discretisation[0], -1, 10, linewidth=3)
+ax.hlines(discretisation[1], -1, 10, linewidth=3)
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+plt.show()
+```
+
+## Tabular Data: Sampling
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Tabular data sampling evaluation
+#| fig-width: 55%
+
+fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+fig.patch.set_alpha(0)
+
+x_min, x_max = min_max[0][0] - .5, min_max[0][1] + .5
+y_min, y_max = min_max[1][0] - .5, min_max[1][1] + .5
+#
+plot_step = 0.02
+xx, yy = np.meshgrid(np.arange(x_min, x_max, plot_step),
+                     np.arange(y_min, y_max, plot_step))
+#plt.tight_layout(h_pad=0.5, w_pad=0.5, pad=2.5)
+Z = clf_num_two.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = Z.reshape(xx.shape)
+ax.contourf(xx, yy, Z, cmap=plt.cm.RdYlBu, alpha=.5)
+#
+ax.set_xlabel(feature_names[two_features[0]], fontsize=18)
+ax.set_ylabel(feature_names[two_features[1]], fontsize=18)
+#
+ax.set_xlim(x_min, x_max)
+ax.set_ylim(y_min, y_max)
+# plt.xticks(())
+# plt.yticks(())
+ax.scatter(instance[0], instance[1],
+             c='yellow', marker='*', s=500, edgecolor='k')
+ax.vlines(discretisation[0], -1, 10, linewidth=3)
+ax.hlines(discretisation[1], -1, 10, linewidth=3)
+#
+ax.tick_params(axis='x', labelsize=18)
+ax.tick_params(axis='y', labelsize=18)
+
+ax.scatter(sample_mixup[:, 0],
+           sample_mixup[:, 1],
+           c='green', edgecolor='k', alpha=0.5)
+
+plt.show()
+```
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Examples
+
+## One-class Linear Surrogate
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image data linear explanation 1
+#| fig-width: 55%
+
+fig, (ax_rr, ax_r, ax_l) = plot_image_explanation(blimey_image, explain_classes[0])
+plt.show()
+```
+
+## One-class Linear Surrogate {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image data linear explanation 2
+#| fig-width: 55%
+
+fig, (ax_rr, ax_r, ax_l) = plot_image_explanation(blimey_image, explain_classes[1])
+plt.show()
+```
+
+## One-class Linear Surrogate {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Image data linear explanation 3
+#| fig-width: 55%
+
+fig, (ax_rr, ax_r, ax_l) = plot_image_explanation(blimey_image, explain_classes[2])
+plt.show()
+```
+
+## Multi-class Tree Surrogate
+
+![]({{< meta custom-paths.figures >}}/explanation_limetree_multi-tree.svg){fig-alt="Image data multi-output tree explanation" width=100% fig-align="center"}
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Case Studies & Gotchas!
+
+## Image Data: Segmentation Size & Occlusion Colour
+
+```{python}
+#| echo: false
+#| output: false
+
+segmenter_s = fatf_segmentation.Slic(doggo_array, n_segments=13)
+occluder_s = fatf_occlusion.Occlusion(doggo_array, segmenter_s.segments, colour='mean')
+segmenter_l = fatf_segmentation.Slic(doggo_array, n_segments=100)
+occluder_l = fatf_occlusion.Occlusion(doggo_array, segmenter_l.segments, colour='mean')
+```
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Small segmentation
+#| fig-width: 55%
+
+img_bound = occluder_s.occlude_segments_vectorised(np.array(segmenter_s.segments_number*[0]))
+img_bound = segmenter_s.mark_boundaries(colour=(255, 0, 0), image=img_bound)
+ax = plt.imshow(img_bound)
+ax.get_figure().patch.set_alpha(0)
+plt.grid(False)
+plt.xticks([])
+plt.yticks([])
+plt.show()
+```
+
+:::
+
+::: {.column width="50%"}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Large segmentation
+#| fig-width: 55%
+
+img_bound = occluder_l.occlude_segments_vectorised(np.array(segmenter_l.segments_number*[0]))
+img_bound = segmenter_l.mark_boundaries(colour=(255, 0, 0), image=img_bound)
+ax = plt.imshow(img_bound)
+ax.get_figure().patch.set_alpha(0)
+plt.grid(False)
+plt.xticks([])
+plt.yticks([])
+plt.show()
+```
+
+:::
+
+::::
+
+## Image Data: Segmentation Size & Occlusion Colour {{< meta subs.ctd >}}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+
+![]({{< meta custom-paths.figures >}}/intrep_img_5.svg){fig-alt="Image data interpretable representation behaviour" width=100% fig-align="center"}
+
+:::
+
+::: {.column width="50%"}
+
+![]({{< meta custom-paths.figures >}}/intrep_img_40.svg){fig-alt="Image data interpretable representation behaviour" width=100% fig-align="center"}
+
+:::
+
+::::
+
+::: {.notes}
+* Note that **linear model's assumptions are broken** -- adjacent super-pixels
+  are **highly correlated**
+:::
+
+## Image Data: Segmentation Size & Occlusion Colour {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Black explanation
+#| fig-width: 55%
+
+blimey_image = build_image_blimey(
+    doggo_array,
+    img_clf.predict_proba,
+    explain_classes,
+    explanation_size=5,
+    segments_number=13,
+    occlusion_colour='black',
+    samples_number=10,
+    batch_size=50,
+    random_seed=42)
+
+fig, (ax_rr, ax_r, ax_l) = plot_image_explanation(blimey_image, explain_classes[0])
+plt.show()
+```
+
+## Image Data: Segmentation Size & Occlusion Colour {{< meta subs.ctd >}}
+
+```{python}
+#| echo: false
+#| fig-align: center
+#| fig-alt: Black explanation
+#| fig-width: 55%
+
+blimey_image = build_image_blimey(
+    doggo_array,
+    img_clf.predict_proba,
+    explain_classes,
+    explanation_size=5,
+    segments_number=13,
+    occlusion_colour='green',
+    samples_number=10,
+    batch_size=50,
+    random_seed=42)
+
+fig, (ax_rr, ax_r, ax_l) = plot_image_explanation(blimey_image, explain_classes[0])
+plt.show()
+```
+
+## Tabular Data: Incompatibility of Binarisation and Linear Models
+
+![]({{< meta custom-paths.figures >}}/tabular_ir_top-left.png){fig-alt="Tabular data interpretable representation mock-up" width=100% fig-align="center"}
+
+## Tabular Data: Incompatibility of Binarisation and Linear Models {{< meta subs.ctd >}}
+
+![]({{< meta custom-paths.figures >}}/blimey_ols.svg){fig-alt="bLIMEy tabular analytical OLS solution" width=100% fig-align="center"}
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Properties
+
+## Pros &nbsp;&nbsp;&nbsp;{{< fa plus-square >}}
+
+- A **universal inspection mechanism** for various subspaces of an arbitrary
+  black-box algorithmic decision process
+- **Highly customisable**
+- A single explanatory procedure for **image, text and tabular data**
+- Produces **diverse explanation types**
+  depending on the utilised surrogate model
+- Outputs **intuitive explanations** for image and text data due to the use of
+  **interpretable representations**
+
+## Cons &nbsp;&nbsp;&nbsp;{{< fa minus-square >}}
+
+- **Inadequate for high-stakes** algorithmic decisions because of lacklustre
+  fidelity
+- Explanations may be **counterintuitive and misleading** for a lay audience
+  when applied to **tabular data with an interpretable representation**
+
+## Caveats &nbsp;&nbsp;&nbsp;{{< fa skull >}}
+
+- While post-hoc, model-agnostic and data-universal,
+  they **must not be treated as a silver bullet**
+- Their characteristics allow a **single instantiation** of
+  a surrogate explainer to be applied to **diverse problems**,
+  however the quality of the resulting explanations will vary across
+  different problems and data sets
+- Building them requires an **effort** since each explainer should be tweaked
+  and tuned to the problem at hand
+
+<!-- #%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#%#% --->
+
+# Further Considerations
+
+## Related Techniques
+
+<br>
+
+- LIME [@ribeiro2016why]
+- LIMEtree [@sokol2020limetree]
+- RuleFit [@friedman2008predictive]
+
+## Implementations
+
+| {{< fa brands python >}} Python          | {{< fa brands r-project >}} R     |
+|:-----------------------------------------|:----------------------------------|
+| [LIME][lime-py]                          | [lime][lime-r]                    |
+| [interpret]                              | [iml]                             |
+| [Skater]                                 |                                   |
+| [AIX360]                                 |                                   |
+
+: {tbl-colwidths="[50,50]"}
+
+## Further Reading
+
+- [bLIMEy paper][blimey-paper] [@sokol2019blimey]
+- [LIME paper][lime-paper] [@ribeiro2016why]
+- [LIMEtree paper][limetree-paper] [@sokol2020limetree]
+- [*Interpretable Machine Learning* book][iml-book]
+- FAT Forensics how-to guide for [tabular surrogates][fatf-howto-2] and
+  [image surrogates][fatf-howto-1], and [surrogates tutorial][fatf-tutorial]
+- [Tabular surrogates tutorial][tutorial]
+- [Interactive resources][interactive-builder]
+
+## Bibliography
+
+::: {#refs}
+:::
+
+---
+
+[lime-py]: https://github.com/marcotcr/lime
+[interpret]: https://github.com/interpretml/interpret
+[Skater]: https://github.com/oracle/Skater
+[AIX360]: https://github.com/Trusted-AI/AIX360
+
+[lime-r]: https://github.com/thomasp85/lime
+[iml]: https://github.com/christophM/iml
+
+[blimey-paper]: https://doi.org/10.48550/arXiv.1910.13016
+[lime-paper]: https://doi.org/10.1145/2939672.2939778
+[limetree-paper]: https://doi.org/10.48550/arXiv.2005.01427
+[iml-book]: https://christophm.github.io/interpretable-ml-book/lime.html
+[fatf-tutorial]: https://fat-forensics.org/tutorials/prediction-explainability.html
+[fatf-howto-1]: https://fat-forensics.org/how_to/transparency/image-surrogates.html
+[fatf-howto-2]: https://fat-forensics.org/how_to/transparency/tabular-surrogates.html
+[tutorial]: https://events.fat-forensics.org/2020_ecml-pkdd
+[interactive-builder]: https://github.com/fat-forensics/resources

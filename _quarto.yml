@@ -28,9 +28,9 @@ execute:
   enabled: true
 custom-paths:
   figures: /assets/figures
-  ipynb-figures: /files/assets/figures
+  ipynb-figures: ../../assets/figures
   images: /assets/images
-  ipynb-images: /files/assets/images
+  ipynb-images: ../../assets/images
 subs:
   ctd: "&nbsp;&nbsp;&nbsp;{{< fa arrow-alt-circle-up >}}"
 
@@ -101,14 +101,14 @@ website:
 #            href: slides/3_feature-based/fi.qmd
 #          - text: Functional Decomposition
 #            href: slides/3_feature-based/fd.qmd
-#      - section: Meta-Explainers
-#        contents:
-#          - text: Surrogate Explainers
-#            href: slides/5_meta/surrogate.qmd
+      - section: Meta-Explainers
+        contents:
+          - text: Surrogate Explainers
+            href: slides/5_meta/surrogate.qmd
 #          - text: "Surrogate Explainers: LIME"
 #            href: slides/5_meta/lime.qmd
-#          - text: Surrogate Explainers Demo
-#            href: demos/5_meta/surrogates.ipynb
+#          - text: "Surrogate Explainers: LIMEtree"
+#            href: slides/5_meta/limetree.qmd
 #          - text: RuleFit
 #            href: slides/5_meta/rulefit.qmd
 #          - text: Anchors
@@ -123,3 +123,7 @@ website:
 #            href: slides/4_instance-based/prototypes_criticisms.qmd
 #          - text: Counterfactuals
 #            href: slides/4_instance-based/counterfactuals.qmd
+#      - section: Demos
+#        contents:
+#          - text: Surrogate Explainers Demo
+#            href: demos/5_meta/surrogates.ipynb
