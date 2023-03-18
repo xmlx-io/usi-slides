@@ -2,7 +2,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/xmlx-io/usi-slides?display_name=tag&logo=github)](https://github.com/xmlx-io/usi-slides/releases/latest)  
 [![Slides Licence](https://img.shields.io/badge/slides%20licence-CC%20BY--NC--SA%204.0-lightgrey)](LICENCE)
 [![Code Licence](https://img.shields.io/badge/code%20licence-MIT-lightgrey)](LICENCE-code)  
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7646834.svg)](https://doi.org/10.5281/zenodo.7646834)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7646970.svg)](https://doi.org/10.5281/zenodo.7646970)
 [![Cite BibTeX](https://img.shields.io/badge/cite-bibtex-yellow.svg)](https://usi.xmlx.io/slides/index.html#citing-the-slides)
 
 #  Machine Learning Explainability
@@ -417,10 +417,17 @@ If you happen to use these slides, please cite them as follows.
   author={Sokol, Kacper},
   title={{eXplainable} {Machine} {Learning} -- {USI} {Course}},
   howpublished={\url{https://usi.xmlx.io/}},
-  doi={10.5281/zenodo.7646834},
+  doi={10.5281/zenodo.7646970},
   year={2023}
 }
 ```
+
+## Acknowledgement
+
+The creation of these educational materials was supported by
+the ARC Centre of Excellence for Automated Decision-Making and Society
+(project number CE200100005), and funded in part by the Australian Government
+through the Australian Research Council.
 
 <!-- articles -->
 [xray-wired]: https://www.wired.com/story/these-algorithms-look-x-rays-detect-your-race/
